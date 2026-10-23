@@ -9,3 +9,15 @@ src/code_atlas/web/
 .codemap/cache/
 dist/
 _site/
+# Local credentials and exports must never enter the published source tree.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa
+id_ed25519
+credentials.json
+gcs_key.json

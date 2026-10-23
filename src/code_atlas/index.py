@@ -43,6 +43,8 @@ def connect(repo: Path) -> sqlite3.Connection:
     for col, decl in (("doc", "text"), ("mtime", "integer")):  # index written by an older version
         if col not in cols:
             db.execute(f"alter table files add column {col} {decl}")
+    if "anchor_hash" not in cols:
+        db.execute("alter table files add column anchor_hash text")
     return db
 
 

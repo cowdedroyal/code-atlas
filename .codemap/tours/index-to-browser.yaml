@@ -2,23 +2,24 @@
 id: index-to-browser
 title: From the index to the map in the browser
 summary: How codeatlas build lays the map out and what the viewer does with it.
-run: confirm-published-anchors
-at: '2026-10-23T21:04:59'
+run: desktop-review-published-flows-20261023
+at: '2026-10-23T22:36:48'
 steps:
 - at: src/code_atlas/cli.py#build
-  text: 'Builds a static site: viewer assets plus JSON. Nothing runs on a server, so the result can be hosted anywhere.'
+  text: Refreshes the scan, then builds viewer assets and JSON as a static site. Reading the deployed map needs
+    only static hosting.
   anchor: 2c4f1e0be1cbe84a
 - at: src/code_atlas/site.py#build_data
-  text: Loads the index and the semantic layer and assembles everything the viewer needs, including staleness and
-    tour chains.
+  text: Combines scanned structure, semantic notes and tour status, adding module-scope cards and cached layout
+    before producing viewer data.
   anchor: a6752c1731c73763
 - at: src/code_atlas/semantic/regions.py#effective_regions
-  text: 'Which region each file is in: the agent''s regions when there are any, directory-based drafts otherwise;
-    files no rule claims go to Unassigned.'
+  text: Uses agent-defined regions or directory drafts with optional Leiden subgroups. Files unclaimed by rules
+    remain visible under Unassigned.
   anchor: 02ae690a786e8709
 - at: src/code_atlas/layout.py#layout
-  text: 'Sizes bottom-up, positions top-down: every file reserves the box its symbols need, so dots can become boxes
-    without overlapping.'
+  text: Sizes nested boxes bottom-up and places them top-down. Cached sibling positions are reused when they fit;
+    growing boxes move to avoid overlap.
   anchor: a7e4eda3722f39fc
 - at: src/code_atlas/site.py#_chunk_files
   text: Splits symbols into chunks of at most a few thousand along the region tree, so the viewer only fetches what
@@ -34,6 +35,6 @@ steps:
     later, on demand.
   anchor: 581c17feff62903f
 - at: frontend/src/MapView.tsx#MapView
-  text: 'Semantic zoom: by on-screen size, regions give way to file dots and dots to symbol boxes; edges follow
-    whatever is hovered or selected.'
+  text: Automatic zoom changes regions, files and symbols unless a level is locked. Dependencies follow the active
+    level and focus; tours overlay their route.
   anchor: 7b43162e997320a3

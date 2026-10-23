@@ -59,7 +59,7 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
     repo = repo.resolve()
     rep = ScanReport()
     db = connect(repo)
-    prev = {} if full else {r["path"]: dict(r) for r in db.execute("select path, size, mtime, kind, hash, lines from files")}
+    prev = {} if full else {r["path"]: dict(r) for r in db.execute("select path, size, mtime, kind, hash, anchor_hash, lines from files")}
     entries = discover(repo, {p: (r["size"], r["mtime"], r["kind"]) for p, r in prev.items() if r["mtime"]})
     by_path = {e.path: e for e in entries}
     rep.files = len(entries)
@@ -69,15 +69,17 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
     facts: dict[str, dict] = {}
     todo = []
     hashes: dict[str, str] = {}
+    anchor_hashes: dict[str, str] = {}
     lines: dict[str, int] = {}
     for e in entries:
         if not e.parse and e.kind not in ("docs", "config"):
             continue
         p = prev.get(e.path)
         c = cached.get(e.path)
-        if p and p["mtime"] and (p["size"], p["mtime"]) == (e.size, e.mtime) and p["hash"]:
+        if p and p["mtime"] and (p["size"], p["mtime"]) == (e.size, e.mtime) and p["hash"] and p["anchor_hash"]:
             # unchanged on disk: reuse hash, line count and facts without opening the file
             hashes[e.path], lines[e.path] = p["hash"], p["lines"]
+            anchor_hashes[e.path] = p["anchor_hash"]
             if not e.parse:
                 continue
             if c and c[0] == p["hash"] and c[1] == EXTRACTOR_VERSION:
@@ -90,6 +92,7 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
             continue
         h = hashlib.sha1(raw).hexdigest()
         hashes[e.path] = h
+        anchor_hashes[e.path] = hashlib.sha1(raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
         text = raw.decode("utf-8", "replace")
         lines[e.path] = text.count("\n") + 1
         if not e.parse:
@@ -139,9 +142,9 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
             db.execute("drop table touched")
         db.executemany("insert into symbols values (?,?,?,?,?,?,?,?,?,?,?,?)", new_syms)
         db.execute("delete from files")
-        db.executemany("insert into files (path, kind, lang, tier, size, lines, hash, entry, doc, mtime) values (?,?,?,?,?,?,?,?,?,?)",
+        db.executemany("insert into files (path, kind, lang, tier, size, lines, hash, entry, doc, mtime, anchor_hash) values (?,?,?,?,?,?,?,?,?,?,?)",
                        [(e.path, e.kind, e.lang, e.tier, e.size, lines.get(e.path), hashes.get(e.path),
-                         int(facts.get(e.path, {}).get("entry", False)), facts.get(e.path, {}).get("doc"), e.mtime)
+                         int(facts.get(e.path, {}).get("entry", False)), facts.get(e.path, {}).get("doc"), e.mtime, anchor_hashes.get(e.path))
                         for e in entries])
         _write_edges(db, [(e.src, e.dst, e.type, e.conf, e.via, e.count) for e in res.edges])
         db.execute("delete from externals")

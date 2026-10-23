@@ -2,17 +2,17 @@
 id: scan-a-repository
 title: From codeatlas scan to the index
 summary: How a working tree becomes files, symbols and resolved edges — and why a second scan is fast.
-run: confirm-published-anchors
-at: '2026-10-23T21:04:59'
+run: desktop-review-published-flows-20261023
+at: '2026-10-23T22:36:48'
 steps:
 - at: src/code_atlas/cli.py#scan
   text: 'The command people and agents run first. Everything after this is deterministic: no LLM is involved in
     the structure layer.'
   anchor: fe9097aaa0811837
 - at: src/code_atlas/scan.py#scan
-  text: 'Loads the previous file table and parse cache, then decides per file: reuse the cached facts, or parse
-    again. Only content changes trigger a parse.'
-  anchor: 4c3a2e222a3b83f3
+  text: Reuses unchanged file facts and parses changed content or extractor versions. Resolution runs globally,
+    with optional SCIP replacement, before the index is updated.
+  anchor: 90288acf09d8cfb0
 - at: src/code_atlas/discover.py#discover
   text: Lists files through git and classifies them; vendored, generated, data and binary files never reach the
     parser. Unchanged files keep their class without being opened.
@@ -26,8 +26,8 @@ steps:
     svc.place() becomes OrderService.place before resolution.'
   anchor: 1a6429a5d7253be5
 - at: src/code_atlas/resolve.py#Resolver.run
-  text: 'With every file''s facts in hand, resolution runs over the whole repository: imports first, then inheritance,
-    then every reference.'
+  text: Resolves inheritance first so member calls can find base methods, then processes file imports and references
+    across the repository.
   anchor: 8d44d537296d2590
 - at: src/code_atlas/resolve.py#Resolver.resolve_ref
   text: The ladder for one name, from most to least certain. Each edge keeps how it was found and a confidence;

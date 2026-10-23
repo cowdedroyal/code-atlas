@@ -11,16 +11,16 @@
 
 接手一个大项目时，最难的不是读懂某个函数，而是**先搞清它整体怎么分块、块之间怎么协作、关键路径落在哪些文件和函数上**。README 和架构文档往往过时，IDE 又只能逐个文件看。
 
-做 AI 知识地图（`D:\workspace\ai-knowledge-map`）时验证过一套做法：一张带语义缩放的地图、带理由的关系、由 agent 按 skill 写变更集。这个项目把它搬到代码上，做成一个**通用开源工具**（发布到 GitHub 和 PyPI），谁想快速了解自己或别人的仓库都能用。
+做 AI 知识地图（先前的地图项目）时验证过一套做法：一张带语义缩放的地图、带理由的关系、由 agent 按 skill 写变更集。这个项目把它搬到代码上，做成一个**通用开源工具**（发布到 GitHub 和 PyPI），谁想快速了解自己或别人的仓库都能用。
 
 和 kmap 有一个根本不同：代码的**结构可以由程序确定性地完整扫出来**，包括文件、类、函数、import、调用和继承。所以这里把职责一分为二：
 
 - **结构层**：由程序负责，扫一遍仓库就保证完整，并且随代码更新，不需要 LLM。
 - **语义层**：由 agent 加 skill 负责，包括逻辑区域、摘要、逻辑联系和关键流程。语义层挂在结构层的稳定 ID 上；代码一变，对应的标注自动标成过期，进入待办。
 
-已确认的约束：通用开源项目；语义层存进**被分析仓库的 `.codemap/`**，可以提交、可以 review；第一个验证对象是 **`D:\workspace\artist_agent`**（7.5k 个跟踪文件，Python、TS、JS 混合，还提交了 node_modules 和数据集）。
+已确认的约束：通用开源项目；语义层存进**被分析仓库的 `.codemap/`**，可以提交、可以 review；第一个验证对象是 **一个本地应用仓库**（7.5k 个跟踪文件，Python、TS、JS 混合，还提交了 node_modules 和数据集）。
 
-名称为 **Code Atlas**：PyPI 包名改为 `repo-code-atlas`（`code-atlas` 被 PyPI 近似名称保护拒绝），CLI 命令 `codeatlas`，Python 模块 `code_atlas`。项目目录是 `D:\workspace\code-atlas`。
+名称为 **Code Atlas**：PyPI 包名改为 `repo-code-atlas`（`code-atlas` 被 PyPI 近似名称保护拒绝），CLI 命令 `codeatlas`，Python 模块 `code_atlas`。
 
 全文沿着**一段代码的一生**展开：扫描器发现它 → 给它一个稳定 ID → 解析出它和别处的结构联系 → agent 判断它属于哪个逻辑区域、承担什么职责 → 布局给它分配位置 → 它出现在地图的某个缩放层上 → 代码改了，程序察觉并让 agent 复核。
 
@@ -45,7 +45,7 @@
 
 - 优先用 `git ls-files` 加工作区里未跟踪、但没被 ignore 的文件；非 git 目录退回到遍历目录并读 `.gitignore`。另外支持 `.codemapignore`。
 - **分类**：用路径规则、文件头标记和大小阈值，把文件标为 `source | test | config | docs | generated | vendored | data | binary`。规则类似 GitHub linguist，例如 `node_modules/`、`dist/`、`*.min.js`、`*.map`、lockfile、`@generated` 头、超过 1MB 的文件。
-- vendored、generated、data 和 binary 文件不解析符号，在地图上折叠成「依赖或资产」块。artist_agent 正好用来测这一点：它有 3986 个 node_modules 文件和 987 个 `.map` 文件。
+- vendored、generated、data 和 binary 文件不解析符号，在地图上折叠成「依赖或资产」块。示例应用 正好用来测这一点：它有 3986 个 node_modules 文件和 987 个 `.map` 文件。
 
 ### 2.2 解析：tree-sitter 加分级语言支持
 
@@ -70,7 +70,7 @@
 
 - **ID 格式**：`<path>#<限定名>`。同名重载加签名后缀，再冲突就加序号。路径统一用 POSIX 风格的相对路径，避免 Windows 和 Linux 生成的 ID 不一致。
 - **改名和移动**：结合 `git diff -M` 的重命名检测和正文哈希匹配，旧 ID 记进 alias 表，语义标注跟着迁过去，不会丢。
-- **增量**：索引里记录上次扫描的 commit 和每个文件的内容哈希。重扫时只解析变化的文件，再对这些文件和**反向依赖它们的文件**重新解析引用。解析用进程池并行。目标：artist_agent 过滤后的源码全量扫描在 60 秒内，改一个文件后的增量扫描在 3 秒内。
+- **增量**：索引里记录上次扫描的 commit 和每个文件的内容哈希。重扫时只解析变化的文件，再对这些文件和**反向依赖它们的文件**重新解析引用。解析用进程池并行。目标：示例应用 过滤后的源码全量扫描在 60 秒内，改一个文件后的增量扫描在 3 秒内。
 - 结构索引是**可重建的缓存**，存在 `.codemap/cache/index.sqlite`，加进 gitignore。
 
 ---
@@ -150,7 +150,7 @@ agent 不直接改 `.codemap/` 里的文件，而是沿用 kmap 的契约：**�
 | `codeatlas serve` / `codeatlas build` | 本机浏览 / 构建静态站点 |
 | `codeatlas skill install [--target claude|agents]` | 把 skill 装到 `~/.claude/skills` 或 `.agents/skills` |
 
-skill 放在 `skill/codeatlas/`，遵循开放的 Agent Skills 格式，所以 Claude Code、Codex 等都能用。结构仿照 `ai-knowledge-map/skill/kmap/`：
+skill 放在 `skill/codeatlas/`，遵循开放的 Agent Skills 格式，所以 Claude Code、Codex 等都能用。结构仿照 `reference-map/skill/kmap/`：
 
 - `SKILL.md`：入口，包括调用方式、各模式和硬规则。
 - `references/`：
@@ -171,13 +171,13 @@ skill 放在 `skill/codeatlas/`，遵循开放的 Agent Skills 格式，所以 C
 1. **文件内**：符号框按源码顺序做网格装箱，类框里再装方法。这样算出每个文件的矩形尺寸，也就是它的 **footprint**。
 2. **区域内**：文件按区域内的依赖做力导向布局，碰撞半径取 footprint，保证放大到 L2 时矩形不重叠。
 3. **区域之间**：用带区域图吸引力的装箱布局排开子区域，再逐级向上。
-4. **稳定性**：增量时老位置不动，新文件放在它的依赖邻居的质心附近；全量重排后用 Procrustes 对齐旧布局。这部分直接改写 `ai-knowledge-map/backend/kmap/services/layout.py` 里的 `place_new_nodes` 和对齐逻辑。
+4. **稳定性**：增量时老位置不动，新文件放在它的依赖邻居的质心附近；全量重排后用 Procrustes 对齐旧布局。这部分直接改写 `reference-map/backend/kmap/services/layout.py` 里的 `place_new_nodes` 和对齐逻辑。
 
 **前端**：Vite + React + TypeScript + **deck.gl**（OrthographicView）。不沿用 kmap 的 sigma.js，因为这里要画嵌套矩形、多边形疆域，还要按缩放切换层，deck.gl 的图层模型更合适，也能撑住百万级图元。
 
 - 不同缩放层用不同的图层集合：疆域用 PolygonLayer，文件点用 ScatterplotLayer，符号框用 SolidPolygonLayer，线用 PathLayer 加边捆绑，文字用 TextLayer 并按重要度避让。
 - **按视口分块加载**：L0/L1 的数据一次性拿到；L2 的符号和代码片段按区域分块，进入视口时再取，所以十万文件级的仓库也能浏览。
-- 视觉沿用 kmap 的瑞士风格（`ai-knowledge-map/frontend/src/palette.ts`）。八种区域角色对应八个低饱和色；界面提供中英两种语言。
+- 视觉沿用 kmap 的瑞士风格（`reference-map/frontend/src/palette.ts`）。八种区域角色对应八个低饱和色；界面提供中英两种语言。
 - 代码高亮用 Shiki。⌘K 搜索文件和符号，选中结果后地图飞到对应位置。
 
 **API 全是静态 JSON**（`graph.json`、`regions.json`、`chunks/<region>.json`、`tours.json`）：
@@ -193,7 +193,7 @@ skill 放在 `skill/codeatlas/`，遵循开放的 Agent Skills 格式，所以 C
 ## 6. 仓库结构
 
 ```
-D:\workspace\code-atlas\
+code-atlas/
   pyproject.toml            hatchling + uv；入口 codeatlas = code_atlas.cli:app（Typer）
   src/code_atlas/
     discover.py             文件发现与分类
@@ -221,10 +221,10 @@ D:\workspace\code-atlas\
 |---|---|---|
 | 状态（2026-10-23） | M0–M5 已完成（M5：Go/Java/Rust/C/C++/C# 升为一级、SCIP 导入、分块与按需搜索索引、发布准备、自映射演示站；未实际发布到 PyPI 和 Pages）。Tour 的校验规则放宽为“每一步可从此前任一步到达” | |
 | **M0** | 项目骨架、`uv` 环境、CI、`git init`；把本方案存为 `docs/design.md` | `codeatlas --help` 能跑；CI 通过 |
-| **M1 结构层** | 文件发现与分类；Python、TS/TSX、JS 一级查询包；二级通用提取；非代码文件提取；import 解析与名字解析阶梯；稳定 ID；SQLite 索引；`scan`/`status`/`show` | fixture 快照测试通过；artist_agent 扫描时 node_modules 和 `.map` 被折叠，符号数和抽查的 20 条调用边正确 |
-| **M2 地图** | 草稿区域；分层布局；deck.gl 前端，L0–L3 加搜索加详情面板；`serve`/`build` | 不经过 agent，artist_agent 就能缩放浏览；放大后矩形不重叠；在浏览器预览中截图核对 |
-| **M3 语义层** | `.codemap/` 格式；changeset 的 validate/apply/回滚；agenda；skill v1；L0 语义边、摘要和过期标记的展示 | 在 artist_agent 上跑 `init` 加若干轮 `annotate`/`link`，区域名能回答「去掉它失去什么」 |
-| **M4 增量与流程** | 增量扫描、改名追踪、过期检测；Tour 的校验与播放 | 改名一个函数后摘要跟着走；改函数体后摘要进入 refresh 待办；artist_agent 至少有 2 条流程能播放 |
+| **M1 结构层** | 文件发现与分类；Python、TS/TSX、JS 一级查询包；二级通用提取；非代码文件提取；import 解析与名字解析阶梯；稳定 ID；SQLite 索引；`scan`/`status`/`show` | fixture 快照测试通过；示例应用 扫描时 node_modules 和 `.map` 被折叠，符号数和抽查的 20 条调用边正确 |
+| **M2 地图** | 草稿区域；分层布局；deck.gl 前端，L0–L3 加搜索加详情面板；`serve`/`build` | 不经过 agent，示例应用 就能缩放浏览；放大后矩形不重叠；在浏览器预览中截图核对 |
+| **M3 语义层** | `.codemap/` 格式；changeset 的 validate/apply/回滚；agenda；skill v1；L0 语义边、摘要和过期标记的展示 | 在 示例应用 上跑 `init` 加若干轮 `annotate`/`link`，区域名能回答「去掉它失去什么」 |
+| **M4 增量与流程** | 增量扫描、改名追踪、过期检测；Tour 的校验与播放 | 改名一个函数后摘要跟着走；改函数体后摘要进入 refresh 待办；示例应用 至少有 2 条流程能播放 |
 | **M5 推广** | 其余一级语言；SCIP 导入；视口分块加载；中英界面；README 和演示站；发布到 PyPI | 在一个公开的大型仓库上跑通，演示站部署到 GitHub Pages |
 
 ---
@@ -238,10 +238,10 @@ D:\workspace\code-atlas\
   - 改名后通过 alias 找回标注；正文改动后标注判为过期。
   - changeset 拦截不存在的 evidence、跨族的非法边和超长摘要；`apply` 幂等。
   - 增量扫描的结果和全量扫描完全一致（同一个 commit 两种方式各跑一次，对比索引）。
-- **端到端**（artist_agent）：
+- **端到端**（示例应用）：
   1. `codeatlas scan`，检查 `status` 里的规模、语言分布和折叠情况。
   2. `codeatlas serve`，在浏览器面板逐层缩放、截图，确认 L1 到 L2 时文件点展开成矩形、线随层级切换。
   3. 用 skill 跑一轮 `init` 和 `annotate`，检查 `.codemap/` 下文件的 git diff 是否可读。
-  4. 改动 artist_agent 的一个文件后增量扫描，确认 agenda 出现对应的 refresh 待办。
+  4. 改动 示例应用 的一个文件后增量扫描，确认 agenda 出现对应的 refresh 待办。
 - **性能**：用合成的 5 万文件、50 万符号仓库测试扫描耗时和前端缩放帧率。
 - **质量抽检**：随机抽 20 条调用边对照源码判断是否正确；抽 10 个区域，看名字和职责是否站得住。

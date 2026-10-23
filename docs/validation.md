@@ -2,6 +2,15 @@
 
 This records completed checks and their limits; it is not a claim that every design goal is finished.
 
+## Published tour review
+
+The stale badge on the Pages map was the existing anchor check. The published main revision still used
+the initial annotations; a separate refresh branch had not been deployed. That branch's symbol anchors
+matched local code, but some descriptions omitted later scan/layout/zoom changes and file evidence used
+a CRLF hash that differs in Linux. Desktop review corrected the descriptions and confirmed current
+anchors. File annotation hashes now normalize line endings separately from raw source consistency hashes.
+The warning feature remains enabled; changed behavior must still trigger review.
+
 ## Local checks
 
 - Windows Python 3.12 and an isolated Python 3.13.16 environment: 49 backend tests pass.
@@ -11,7 +20,7 @@ This records completed checks and their limits; it is not a claim that every des
   with 2 covered files and 1 cross-file call. This exposed absolute Windows paths; normalization now
   handles them and has a regression test. Other real SCIP producers have not been tested.
 - `uv sync --locked` completed. An incomplete legacy numpy installation was moved out of the virtual
-  environment; importing numpy is no longer possible. No meshvl serve process was running at inspection.
+  environment; importing numpy is no longer possible. No previous serve process was running at inspection.
 - Semantic confirmation, watcher debounce, Git rename with a changed body, stable positions on file
   addition, non-overlapping boxes and Leiden communities have regression tests.
 
@@ -65,5 +74,5 @@ requests; navigating to a file requested four chunks and produced no runtime err
   site but initially failed deployment with 404. Pages was subsequently enabled with GitHub Actions:
   [run 39951023277](https://github.com/cowdedroyal/code-atlas/actions/runs/39951023277) succeeded and
   the [live map](https://cowdedroyal.github.io/code-atlas/) was verified in the browser.
-- artist_agent received a first batch of 6 important-file and 5 symbol notes. Its remaining annotation
+- The private integration fixture received a first batch of 6 important-file and 5 symbol notes. Its remaining annotation
   agenda is not exhausted and its `.codemap` remains uncommitted, as requested.

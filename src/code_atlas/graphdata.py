@@ -45,7 +45,7 @@ class Index:
         if node in self.symbols:
             return self.symbols[node]["hash"]
         if node in self.mapped:
-            return self.mapped[node]["hash"]
+            return self.mapped[node].get("anchor_hash") or self.mapped[node]["hash"]
         return None
 
 

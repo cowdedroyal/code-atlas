@@ -122,6 +122,9 @@ copies: rerun `skill install` for the same target after upgrading to refresh the
 When content is still correct after code changes, use an explicit `confirm` operation to refresh its
 anchors without changing text. Ordinary identical upserts remain idempotent; confirm validates that
 evidence and tour paths still exist. See the skill changeset reference for examples.
+The “code changed since written” badge is this review feature, not a runtime failure. File anchors
+normalize line endings so Windows CRLF and Linux LF checkouts do not cause false review warnings;
+the build still checks the original byte hash when matching embedded source to the scanned index.
 
 **Tours** walk a reader through one flow — "what happens when a request comes in" — stop by stop, played on
 the map with the real call chain drawn between stops (← / → to step). Every stop must be reachable from an
