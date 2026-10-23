@@ -2,8 +2,8 @@
 id: index-to-browser
 title: From the index to the map in the browser
 summary: How codeatlas build lays the map out and what the viewer does with it.
-run: desktop-review-published-flows-20261023
-at: '2026-10-23T22:36:48'
+run: desktop-confirm-data-revalidation-20261023
+at: '2026-10-23T22:43:03'
 steps:
 - at: src/code_atlas/cli.py#build
   text: Refreshes the scan, then builds viewer assets and JSON as a static site. Reading the deployed map needs
@@ -33,7 +33,7 @@ steps:
 - at: frontend/src/data.ts#loadGraph
   text: Fetches graph.json — regions, files, file edges, relations, tours. Chunks, source and the search index come
     later, on demand.
-  anchor: 581c17feff62903f
+  anchor: fe4ae8062333bcc6
 - at: frontend/src/MapView.tsx#MapView
   text: Automatic zoom changes regions, files and symbols unless a level is locked. Dependencies follow the active
     level and focus; tours overlay their route.
