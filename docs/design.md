@@ -20,7 +20,7 @@
 
 已确认的约束：通用开源项目；语义层存进**被分析仓库的 `.codemap/`**，可以提交、可以 review；第一个验证对象是 **`D:\workspace\artist_agent`**（7.5k 个跟踪文件，Python、TS、JS 混合，还提交了 node_modules 和数据集）。
 
-名称暂定为 **Code Atlas**：PyPI 包名 `code-atlas`，CLI 命令 `codeatlas`。2026-10-23 查过，PyPI 和 npm 上 `code-atlas` 都还没人用。项目目录是 `D:\workspace\code-atlas`。
+名称为 **Code Atlas**：PyPI 包名改为 `repo-code-atlas`（`code-atlas` 被 PyPI 近似名称保护拒绝），CLI 命令 `codeatlas`，Python 模块 `code_atlas`。项目目录是 `D:\workspace\code-atlas`。
 
 全文沿着**一段代码的一生**展开：扫描器发现它 → 给它一个稳定 ID → 解析出它和别处的结构联系 → agent 判断它属于哪个逻辑区域、承担什么职责 → 布局给它分配位置 → 它出现在地图的某个缩放层上 → 代码改了，程序察觉并让 agent 复核。
 
@@ -186,7 +186,7 @@ skill 放在 `skill/codeatlas/`，遵循开放的 Agent Skills 格式，所以 C
 - `codeatlas build`：输出 `site/`，可以直接放到 GitHub Pages、Caddy 或任何静态托管上。
 - 加 `--no-source` 可以不打包代码片段，用于不想公开源码的场合。
 
-所以服务端不需要后端进程。前端在 CI 里构建好再打进 wheel，用户只要执行 `uvx code-atlas` 或 `pipx install code-atlas`，不用装 Node。
+所以服务端不需要后端进程。前端在 CI 里构建好再打进 wheel，用户只要执行 `uvx repo-code-atlas` 或 `pipx install repo-code-atlas`，不用装 Node。
 
 ---
 

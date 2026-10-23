@@ -1,7 +1,8 @@
 name: release
 
 # Push a tag like v0.1.0 to publish. PyPI must trust this workflow first:
-# pypi.org → your project → Publishing → add a GitHub trusted publisher (workflow: release.yml, environment: pypi).
+# The pending publisher is for repo-code-atlas, owner cowdedroyal, repo code-atlas,
+# workflow release.yml, environment pypi. The project is created on first upload.
 on:
   push:
     tags: ["v*"]
@@ -28,7 +29,11 @@ jobs:
         run: |
           python - <<'EOF'
           import glob, zipfile
-          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          wheel = zipfile.ZipFile(glob.glob("dist/*.whl")[0])
+          names = wheel.namelist()
+          from email.parser import Parser
+          metadata = next(n for n in names if n.endswith("/METADATA"))
+          assert Parser().parsestr(wheel.read(metadata).decode())["Name"] == "repo-code-atlas"
           for need in ("code_atlas/web/index.html", "code_atlas/skill/SKILL.md"):
               assert need in names, need
           EOF

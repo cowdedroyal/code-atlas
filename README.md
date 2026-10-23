@@ -21,11 +21,14 @@ The map has two layers with different owners:
 ## Quick start
 
 ```bash
-uvx code-atlas serve -r path/to/your-repo     # scan + build + serve http://127.0.0.1:8765
+uvx repo-code-atlas serve -r path/to/your-repo     # scan + build + serve http://127.0.0.1:8765
 ```
 
 (Until the first PyPI release, run it from a clone: `uv sync && (cd frontend && npm install && npm run build)`,
 then `uv run codeatlas serve -r …`.)
+
+The PyPI distribution is **repo-code-atlas**; the command remains **codeatlas** and the Python module
+remains **code_atlas**. The shorter distribution name was rejected by PyPI's similar-name protection.
 
 The demo map in this repository's Pages site is Code Atlas mapped by itself: its `.codemap/` holds the regions,
 notes, relations and two tours an agent wrote with the bundled skill.
@@ -173,6 +176,9 @@ uv run codeatlas build -r .   # scans and copies current viewer + data into .cod
 
 Releasing: bump `version` in `pyproject.toml`, push a tag `vX.Y.Z`; `.github/workflows/release.yml` builds the
 viewer and the wheel and publishes with PyPI trusted publishing (configure the publisher on PyPI once).
+The pending publisher for `repo-code-atlas` is configured for `cowdedroyal/code-atlas`, workflow
+`release.yml`, environment `pypi`. It creates the PyPI project on first publication; no package has
+been published yet. The live map is at https://cowdedroyal.github.io/code-atlas/.
 
 Historical design notes: [docs/design.md](docs/design.md); current behavior is described above and in the bundled skill.
 

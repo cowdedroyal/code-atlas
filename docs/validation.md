@@ -57,10 +57,13 @@ requests; navigating to a file requested four chunks and produced no runtime err
   the browser after any data rebuild. Automatic browser reload is not implemented.
 - [CI run 39949977702](https://github.com/cowdedroyal/code-atlas/actions/runs/39949977702) succeeded:
   Python 3.12/3.13 across Windows/Linux/macOS, plus the frontend tests/build.
-- No release tag or PyPI upload has been made. Configure the PyPI trusted publisher for owner
-  `cowdedroyal`, repository `code-atlas`, workflow `release.yml`, environment `pypi` before publishing.
-  GitHub Pages requires Actions as its deployment source and a successful Pages workflow.
+- No release tag or PyPI upload has been made. A pending publisher for **repo-code-atlas** is now
+  registered for owner `cowdedroyal`, repository `code-atlas`, workflow `release.yml`, environment `pypi`.
+  PyPI rejected `code-atlas` as too similar to an existing project. Pending registration does not reserve
+  the name or create the project until the first publication.
   [Pages run 39949977648](https://github.com/cowdedroyal/code-atlas/actions/runs/39949977648) built the
-  site but deployment failed with 404; the log says Pages has not been enabled in repository settings.
+  site but initially failed deployment with 404. Pages was subsequently enabled with GitHub Actions:
+  [run 39951023277](https://github.com/cowdedroyal/code-atlas/actions/runs/39951023277) succeeded and
+  the [live map](https://cowdedroyal.github.io/code-atlas/) was verified in the browser.
 - artist_agent received a first batch of 6 important-file and 5 symbol notes. Its remaining annotation
   agenda is not exhausted and its `.codemap` remains uncommitted, as requested.

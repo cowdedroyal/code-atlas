@@ -19,7 +19,7 @@ for a teammate who is new to the project.
 ## How to call it
 
 ```bash
-codeatlas <command> -r <repo>        # or: uvx code-atlas <command> …; query/mutation commands print JSON
+codeatlas <command> -r <repo>        # or: uvx repo-code-atlas <command> …; query/mutation commands print JSON
 ```
 
 | Command | Use |
