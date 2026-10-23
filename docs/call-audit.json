@@ -1,0 +1,310 @@
+[
+  {
+    "repo": "raft",
+    "src": "peersjson.go#ReadPeersJSON",
+    "dst": "configuration.go#checkConfiguration",
+    "via": "package",
+    "matches": [
+      [
+        45,
+        "if err := checkConfiguration(configuration); err != nil {"
+      ]
+    ],
+    "dst_signature": "func checkConfiguration(configuration Configuration) error",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "raft",
+    "src": "file_snapshot_test.go#TestFileSS_Ordering",
+    "dst": "testing.go#newTestLogger",
+    "via": "package",
+    "matches": [
+      [
+        305,
+        "snap, err := NewFileSnapshotStoreWithLogger(dir, 3, newTestLogger(t))"
+      ]
+    ],
+    "dst_signature": "func newTestLogger(tb testing.TB) hclog.Logger",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "raft",
+    "src": "api.go#Raft.tryRestoreSingleSnapshot",
+    "dst": "fsm.go#fsmRestoreAndMeasure",
+    "via": "package",
+    "matches": [
+      [
+        711,
+        "if err := fsmRestoreAndMeasure(snapLogger, r.fsm, source, snapshot.Size); err != nil {"
+      ]
+    ],
+    "dst_signature": "func fsmRestoreAndMeasure(logger hclog.Logger, fsm FSM, source io.ReadCloser, snapshotSize int64) error",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "raft",
+    "src": "raft_test.go#TestRaft_LeadershipTransferLeaderRejectsClientRequests",
+    "dst": "fuzzy/cluster.go#LoggerAdapter.Logf",
+    "via": "unique",
+    "matches": [
+      [
+        2793,
+        "t.Logf(\"waiting on future %v\", i)"
+      ]
+    ],
+    "dst_signature": "func (a *LoggerAdapter) Logf(s string, v ...interface{})",
+    "review": "removed unsafe receiver guess"
+  },
+  {
+    "repo": "gson",
+    "src": "test-graal-native-image/src/test/java/com/google/gson/native_test/ReflectionTest.java#ReflectionTest.testInstanceCreator",
+    "dst": "gson/src/main/java/com/google/gson/Gson.java#Gson.fromJson",
+    "via": "import",
+    "matches": [
+      [
+        113,
+        "gson.fromJson(\"{\\\"i\\\":1}\", ClassWithoutDefaultConstructor.class);"
+      ],
+      [
+        116,
+        "c = gson.fromJson(\"{}\", ClassWithoutDefaultConstructor.class);"
+      ]
+    ],
+    "dst_signature": "public <T> T fromJson(String json, Class<T> classOfT) throws JsonSyntaxException",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "gson",
+    "src": "gson/src/test/java/com/google/gson/functional/CustomTypeAdaptersTest.java#CustomTypeAdaptersTest.testCustomTypeAdapterAppliesToSubClassesSerializedAsBaseClass",
+    "dst": "gson/src/main/java/com/google/gson/JsonObject.java#JsonObject.addProperty",
+    "via": "import",
+    "matches": [
+      [
+        181,
+        "json.addProperty(\"value\", src.baseValue);"
+      ]
+    ],
+    "dst_signature": "public void addProperty(String property, String value)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "gson",
+    "src": "gson/src/main/java/com/google/gson/internal/bind/JavaTimeTypeAdapters.java#JavaTimeTypeAdapters.offsetTime",
+    "dst": "gson/src/main/java/com/google/gson/TypeAdapter.java#TypeAdapter.nullSafe",
+    "via": "guess",
+    "matches": [
+      [
+        245,
+        "}.nullSafe();"
+      ]
+    ],
+    "dst_signature": "public final TypeAdapter<T> nullSafe()",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "gson",
+    "src": "extras/src/test/java/com/google/gson/typeadapters/PostConstructAdapterFactoryTest.java#PostConstructAdapterFactoryTest.testList",
+    "dst": "gson/src/main/java/com/google/gson/Gson.java#Gson.toJson",
+    "via": "import",
+    "matches": [
+      [
+        57,
+        "String json = gson.toJson(sandwiches);"
+      ]
+    ],
+    "dst_signature": "public String toJson(Object src)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "serde-json",
+    "src": "src/value/ser.rs#SerializeTupleVariant.serialize_field",
+    "dst": "src/value/mod.rs#to_value",
+    "via": "import",
+    "matches": [
+      [
+        384,
+        "self.vec.push(tri!(to_value(value)));"
+      ]
+    ],
+    "dst_signature": "pub fn to_value<T>(value: T) -> Result<Value, Error> where T: Serialize,",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "serde-json",
+    "src": "src/lexical/errors.rs#nearest_error_is_accurate",
+    "dst": "src/lexical/rounding.rs#lower_n_halfway",
+    "via": "star",
+    "matches": [
+      [
+        39,
+        "let halfway: u64 = lower_n_halfway(extrabits);"
+      ]
+    ],
+    "dst_signature": "pub(crate) fn lower_n_halfway(n: u64) -> u64",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "serde-json",
+    "src": "src/de.rs#Deserializer.parse_decimal_overflow",
+    "dst": "src/map.rs#Map.clear",
+    "via": "unique",
+    "matches": [
+      [
+        825,
+        "self.scratch.clear();"
+      ]
+    ],
+    "dst_signature": "pub fn clear(&mut self)",
+    "review": "removed unsafe receiver guess"
+  },
+  {
+    "repo": "hiredis",
+    "src": "hiredis.c#redisEnableKeepAlive",
+    "dst": "net.c#redisKeepAlive",
+    "via": "star",
+    "matches": [
+      [
+        963,
+        "return redisKeepAlive(c, REDIS_KEEPALIVE_INTERVAL);"
+      ]
+    ],
+    "dst_signature": "int redisKeepAlive(redisContext *c, int interval)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "hiredis",
+    "src": "adapters/qt.h#RedisQtAdapter.write",
+    "dst": "async.c#redisAsyncHandleWrite",
+    "via": "star",
+    "matches": [
+      [
+        127,
+        "void write() { redisAsyncHandleWrite(m_ctx); }"
+      ]
+    ],
+    "dst_signature": "void redisAsyncHandleWrite(redisAsyncContext *ac)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "hiredis",
+    "src": "adapters/ivykis.h#redisIvykisCleanup",
+    "dst": "alloc.c#hi_free",
+    "via": "star",
+    "matches": [
+      [
+        46,
+        "hi_free(e);"
+      ]
+    ],
+    "dst_signature": "void hi_free(void *ptr)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "fmt",
+    "src": "test/os-test.cc#TEST~35",
+    "dst": "test/posix-mock.h#close",
+    "via": "package",
+    "matches": [
+      [
+        406,
+        "TEST(file_test, close_error_in_dtor) {"
+      ],
+      [
+        411,
+        "// The close function must be called inside EXPECT_WRITE,"
+      ],
+      [
+        412,
+        "// otherwise the system may recycle closed file descriptor when"
+      ],
+      [
+        413,
+        "// redirecting the output in EXPECT_STDERR and the second close"
+      ]
+    ],
+    "dst_signature": "int close(int fildes);",
+    "review": "macro target requires expansion; unresolved"
+  },
+  {
+    "repo": "fmt",
+    "src": "test/format-test.cc#TEST~17",
+    "dst": "include/fmt/format-inl.h#format_system_error",
+    "via": "unique",
+    "matches": [
+      [
+        291,
+        "fmt::format_system_error(message, EDOM, \"test error\");"
+      ]
+    ],
+    "dst_signature": "FMT_FUNC void format_system_error(detail::buffer<char>& out, int error_code, const char* message) noexcept",
+    "review": "removed unsafe receiver guess"
+  },
+  {
+    "repo": "fmt",
+    "src": "test/std-test.cc#TEST~11",
+    "dst": "test/mock-allocator.h#allocator_ref.move",
+    "via": "unique",
+    "matches": [
+      [
+        300,
+        "std::variant<std::monostate, throws_on_move> v6;"
+      ],
+      [
+        303,
+        "throws_on_move thrower;"
+      ],
+      [
+        304,
+        "v6.emplace<throws_on_move>(std::move(thrower));"
+      ]
+    ],
+    "dst_signature": "void move(allocator_ref& other)",
+    "review": "removed unsafe receiver guess"
+  },
+  {
+    "repo": "commandline",
+    "src": "tests/CommandLine.Tests/Unit/Text/HelpTextTests.cs#HelpTextTests.HelpTextHonoursIndentationAfterLineBreaks",
+    "dst": "tests/CommandLine.Tests/StringExtensions.cs#StringExtensions.ToNotEmptyLines",
+    "via": "guess",
+    "matches": [
+      [
+        760,
+        "var lines = sut.ToString().ToNotEmptyLines();"
+      ]
+    ],
+    "dst_signature": "public static string[] ToNotEmptyLines(this string value)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "commandline",
+    "src": "src/CommandLine/UnParserExtensions.cs#UnParserExtensions.IsEmpty",
+    "dst": "src/CommandLine/Infrastructure/ReflectionHelper.cs#ReflectionHelper.IsFSharpOptionType",
+    "via": "star",
+    "matches": [
+      [
+        302,
+        "if (ReflectionHelper.IsFSharpOptionType(value.GetType()) && !FSharpOptionHelper.IsSome(value)) return true;"
+      ]
+    ],
+    "dst_signature": "public static bool IsFSharpOptionType(Type type)",
+    "review": "source and target checked"
+  },
+  {
+    "repo": "commandline",
+    "src": "tests/CommandLine.Tests/Unit/Text/HelpTextTests.cs#HelpTextTests.Invoke_AutoBuild_for_Options_with_custom_help_returns_appropriate_formatted_text",
+    "dst": "src/CommandLine/Text/HelpText.cs#HelpText.AutoBuild",
+    "via": "star",
+    "matches": [
+      [
+        990,
+        "public void Invoke_AutoBuild_for_Options_with_custom_help_returns_appropriate_formatted_text()"
+      ],
+      [
+        1002,
+        "var helpText = HelpText.AutoBuild(fakeResult, h => h);"
+      ]
+    ],
+    "dst_signature": "public static HelpText AutoBuild<T>( ParserResult<T> parserResult, Func<HelpText, HelpText> onError, Func<Example, Example> onExample, bool verbsIndex = false,…",
+    "review": "source and target checked"
+  }
+]

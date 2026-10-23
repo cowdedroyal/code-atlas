@@ -41,8 +41,9 @@ codeatlas build -o site   # static site for GitHub Pages or any static host (--n
 ```
 
 `build` refreshes the scan and writes a consistent snapshot of symbol ranges and source. `serve` scans
-and builds once, then serves the printed local URL until stopped; it does not open a browser. It watches semantic files by default and rebuilds after apply; refresh the
-page to see the result. Use `--no-watch` to disable watching. Source edits still require a scan/build. `serve --no-scan` uses the existing index deliberately;
+and builds once, then serves the printed local URL until stopped; it does not open a browser. It watches
+semantic files by default and rebuilds after apply; refresh the page to see the result. Use `--no-watch`
+to disable watching. Source edits still require a scan/build. `serve --no-scan` uses the existing index deliberately;
 keep it current first. Source changes during a build are detected by hash checks.
 
 Grammars are downloaded on first use by `tree-sitter-language-pack` and cached.

@@ -31,7 +31,8 @@ All six had zero parser failures. These are representative projects, not one lar
 
 C# namespace cycles exposed repeated export traversal. Visited lookup pairs and a per-scan cache now
 bound this search. A deterministic sample of 20 cross-file call edges found four incorrect unknown-receiver
-matches (Go `t.Logf`, Rust `scratch.clear`, C++ `std::move` and a mocked close call). Global-unique lookup now
+matches (Go `t.Logf`, Rust `scratch.clear`, C++ `std::move`); the mocked close call was ambiguous without
+expanding its macro, rather than a proven wrong target. Global-unique lookup now
 accepts only bare names; unknown dotted receivers are omitted instead of mapped to unrelated methods.
 The remaining sampled edges have source invocation and target-definition evidence, but this small review
 does not establish a precision percentage for all edges or overload resolution.
@@ -56,5 +57,5 @@ large-scale browser frame times and dense-edge performance remain unmeasured.
 - No release tag or PyPI upload has been made. Configure the PyPI trusted publisher for owner
   `cowdedroyal`, repository `code-atlas`, workflow `release.yml`, environment `pypi` before publishing.
   GitHub Pages requires Actions as its deployment source and a successful Pages workflow.
-- artist_agent received a first batch of 6 important-file and 2 symbol notes. Its remaining annotation
+- artist_agent received a first batch of 6 important-file and 5 symbol notes. Its remaining annotation
   agenda is not exhausted and its `.codemap` remains uncommitted, as requested.

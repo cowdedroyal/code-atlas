@@ -2,14 +2,22 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 
 def semantic_stamp(repo: Path):
     root = repo / ".codemap"
-    return tuple(sorted((str(p.relative_to(root)), p.stat().st_mtime_ns, p.stat().st_size)
-                        for p in root.rglob("*") if p.is_file() and "cache" not in p.relative_to(root).parts))
+    result = []
+    for p in root.rglob("*"):
+        if "cache" in p.relative_to(root).parts:
+            continue
+        try:
+            if p.is_file():
+                st = p.stat()
+                result.append((str(p.relative_to(root)), st.st_mtime_ns, st.st_size))
+        except FileNotFoundError:
+            continue  # apply may remove a semantic shard while the watcher scans
+    return tuple(sorted(result))
 
 
 def watch_semantics(repo: Path, rebuild, stop: threading.Event, report, interval=0.5):

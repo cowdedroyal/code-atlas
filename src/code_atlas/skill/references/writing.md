@@ -11,8 +11,9 @@ Limits (characters): region 500, file 360, symbol 280. Most good notes are one t
 The detail panel renders Markdown in notes, responsibility text, relation rationales and tour steps.
 Use inline code for identifiers, emphasis sparingly, and a short list only when it improves reading.
 The limits count Markdown syntax and URLs too. Keep region names, relation labels and tour titles plain:
-they appear on the canvas, where Markdown is not rendered. Fenced examples require a language tag for
-syntax highlighting; avoid large code dumps. Raw HTML, math and Mermaid do not render as rich content.
+they appear on the canvas, where Markdown is not rendered. Semantic notes and relation fields reject
+fenced code blocks; use inline code and links instead. Markdown source files can contain fenced blocks
+with language tags for highlighting. Raw HTML, math and Mermaid do not render as rich content.
 Relative repository links in file/symbol notes resolve from that file's directory; region notes have
 no file base, so do not rely on relative links there.
 
