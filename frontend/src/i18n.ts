@@ -1,0 +1,49 @@
+const zh = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("zh");
+
+const STRINGS = {
+  en: {
+    search: "Search files and symbols…", regions: "Regions", files: "Files", symbols: "Symbols", detail: "Detail",
+    level0: "Regions", level1: "Files", level2: "Symbols", draft: "draft region", outgoing: "Uses",
+    incoming: "Used by", code: "Code", noCode: "Source not included in this build.", roles: "Region roles",
+    edges: "Edges", assets: "Not mapped", lines: "lines", entry: "entry point", close: "Close",
+    loading: "Loading map…", fit: "Fit", responsibility: "Responsibility", note: "Note", stale: "code changed since written",
+    orphan: "code no longer exists", relations: "Relations", semantic: "semantic relation", alsoIn: "Also in",
+    unassigned: "Unassigned", tours: "Tours", step: "Step", prev: "Previous", next: "Next", exitTour: "End tour",
+    broken: "steps no longer connected", steps: "steps",
+    lockLevel: "Lock level", locked: "Locked", lockLevelHint: "Keep the current level while zooming and panning",
+    unlockLevelHint: "Unlock to switch levels automatically", resizePanel: "Drag to resize the detail panel",
+    chooseLevelHint: "Show and lock this level",
+    showMoreCode: "Show more code",
+    document: "Document", preview: "Preview", source: "Source", documentView: "Document view",
+    moduleScope: "Module scope", moduleScopeDoc: "Execution outside named declarations, including anonymous callbacks. Declaration bodies are folded; signatures and original line numbers remain visible. Expand a fold or view the complete file for context.",
+    foldedDeclaration: "declaration body folded", viewFullFile: "View complete file", moduleCodeOnly: "Fold declarations",
+    darkMode: "Dark", lightMode: "Light",
+    zoomIn: "Larger text", zoomOut: "Smaller text", resetZoom: "Reset text size", panelZoomHint: "Ctrl + wheel to zoom text",
+    interface: "Interface", orchestration: "Orchestration", core: "Core rules", state: "State & data",
+    integration: "Integration", presentation: "Presentation", foundation: "Foundation", tooling: "Tooling",
+  },
+  zh: {
+    search: "搜索文件和符号…", regions: "区域", files: "文件", symbols: "符号", detail: "详情",
+    level0: "区域", level1: "文件", level2: "符号", draft: "草稿区域", outgoing: "依赖",
+    incoming: "被依赖", code: "代码", noCode: "此次构建未包含源码。", roles: "区域角色",
+    edges: "连线", assets: "未上图", lines: "行", entry: "入口", close: "关闭",
+    loading: "正在加载地图…", fit: "全图", responsibility: "职责", note: "说明", stale: "代码已改动，待复核",
+    orphan: "对应代码已不存在", relations: "逻辑关系", semantic: "语义关系", alsoIn: "也属于",
+    unassigned: "未归属", tours: "流程", step: "第", prev: "上一步", next: "下一步", exitTour: "结束",
+    broken: "步骤之间已断开", steps: "步",
+    lockLevel: "锁定层级", locked: "已锁定", lockLevelHint: "锁住当前层级，仍可缩放和平移",
+    unlockLevelHint: "解锁后随缩放自动切换层级", resizePanel: "拖动调整详情栏宽度",
+    chooseLevelHint: "查看并锁定此层级",
+    showMoreCode: "继续显示代码",
+    document: "文档", preview: "预览", source: "源码", documentView: "文档显示模式",
+    moduleScope: "模块作用域", moduleScopeDoc: "表示未归属具名声明的执行代码，包括匿名回调。声明体默认折叠，保留签名和原始行号；可展开折叠或查看完整文件获取上下文。",
+    foldedDeclaration: "声明体已折叠", viewFullFile: "查看完整文件", moduleCodeOnly: "折叠声明体",
+    darkMode: "深色", lightMode: "浅色",
+    zoomIn: "放大文字", zoomOut: "缩小文字", resetZoom: "重置字号", panelZoomHint: "Ctrl＋滚轮缩放文字",
+    interface: "入口", orchestration: "编排", core: "核心规则", state: "状态与数据",
+    integration: "外部适配", presentation: "呈现", foundation: "支撑", tooling: "元层",
+  },
+};
+
+export type Key = keyof typeof STRINGS.en;
+export const t = (k: Key): string => (zh ? STRINGS.zh : STRINGS.en)[k];

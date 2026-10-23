@@ -1,0 +1,2 @@
+{"at": "2026-10-23T15:08:14", "changes": {"assign": 25, "notes": 11, "regions": 14, "relations": 6, "tours": 0}, "intent": "regionize", "run": "regionize-01", "state": {"assigned": 63, "regions": 14, "unassigned": 0}}
+{"at": "2026-10-23T15:08:48", "changes": {"assign": 0, "notes": 0, "regions": 0, "relations": 0, "tours": 2}, "intent": "tour", "run": "tour-01", "state": {"assigned": 63, "regions": 14, "unassigned": 0}}

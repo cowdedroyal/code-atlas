@@ -1,0 +1,47 @@
+[project]
+name = "code-atlas"
+version = "0.1.0"
+description = "A zoomable map of a code repository: regions, files, symbols and how they connect."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["code map", "visualization", "architecture", "tree-sitter", "code navigation", "agents", "documentation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "igraph>=1.0.0",
+    "pathspec>=1.1.1",
+    "pyyaml>=6.0.3",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.22.1",
+    "typer>=0.27.3",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[project.scripts]
+codeatlas = "code_atlas.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/cowdedroyal/code-atlas"
+Repository = "https://github.com/cowdedroyal/code-atlas"
+Issues = "https://github.com/cowdedroyal/code-atlas/issues"

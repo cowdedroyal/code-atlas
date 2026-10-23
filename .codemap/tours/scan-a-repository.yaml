@@ -1,0 +1,39 @@
+# A guided tour through the code. Written via `codeatlas apply`.
+id: scan-a-repository
+title: From codeatlas scan to the index
+summary: How a working tree becomes files, symbols and resolved edges — and why a second scan is fast.
+run: tour-01
+at: '2026-10-23T15:08:48'
+steps:
+- at: src/code_atlas/cli.py#scan
+  text: 'The command people and agents run first. Everything after this is deterministic: no LLM is involved in
+    the structure layer.'
+  anchor: fe9097aaa0811837
+- at: src/code_atlas/scan.py#scan
+  text: 'Loads the previous file table and parse cache, then decides per file: reuse the cached facts, or parse
+    again. Only content changes trigger a parse.'
+  anchor: cc9a47dc27ec94d3
+- at: src/code_atlas/discover.py#discover
+  text: Lists files through git and classifies them; vendored, generated, data and binary files never reach the
+    parser. Unchanged files keep their class without being opened.
+  anchor: 4b766d70ade5f400
+- at: src/code_atlas/extract/__init__.py#extract
+  text: 'Back in scan, changed files go to worker processes, which call this dispatcher: hand-written walkers, the
+    spec walker, the generic tree-sitter pass, or an outline.'
+  anchor: 5c88b0a52560baa7
+- at: src/code_atlas/extract/spec.py#extract_spec
+  text: 'For Go, Java, Rust, C, C++ and C#: definitions, imports and calls, plus local and field types, so that
+    svc.place() becomes OrderService.place before resolution.'
+  anchor: 1a6429a5d7253be5
+- at: src/code_atlas/resolve.py#Resolver.run
+  text: 'With every file''s facts in hand, resolution runs over the whole repository: imports first, then inheritance,
+    then every reference.'
+  anchor: 8d44d537296d2590
+- at: src/code_atlas/resolve.py#Resolver.resolve_ref
+  text: The ladder for one name, from most to least certain. Each edge keeps how it was found and a confidence;
+    a name that matches nothing is dropped.
+  anchor: 70c352cbd20db01e
+- at: src/code_atlas/scan.py#_write_edges
+  text: 'Back in scan: only the rows that changed are written. Between two scans few edges change, so a diff beats
+    a rewrite.'
+  anchor: cf8e5ec6c8054908

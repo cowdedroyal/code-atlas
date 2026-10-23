@@ -1,0 +1,11 @@
+cache/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+frontend/node_modules/
+# built viewer: produced by `npm run build` in frontend/ (and by CI for releases)
+src/code_atlas/web/
+.codemap/cache/
+dist/
+_site/

@@ -1,0 +1,73 @@
+# Logical regions of this repository. Written by agents via `codeatlas apply`; review like code.
+regions:
+- id: command-line
+  name: Command line
+  role: interface
+  responsibility: 'Every way in: commands for people (scan, build, serve) and for agents (outline, context, agenda,
+    apply).'
+  parent: null
+- id: structure-scanner
+  name: Structure scanner
+  role: orchestration
+  responsibility: Turns a working tree into a complete, current structure index, re-parsing only what changed.
+  parent: null
+- id: extraction
+  name: Per-file extraction
+  role: core
+  responsibility: Reads one file's syntax tree into symbols, imports and references, in any supported language.
+  parent: null
+- id: resolution
+  name: Cross-file resolution
+  role: core
+  responsibility: Turns names into edges between files and symbols, recording how sure each one is.
+  parent: null
+- id: structure-index
+  name: Structure index
+  role: state
+  responsibility: Holds the scanned structure and derives importance and file-to-file weights from it.
+  parent: null
+- id: semantic-layer
+  name: Semantic layer
+  role: state
+  responsibility: 'What agents know about the code: regions, notes, relations and tours, kept true as code changes.'
+  parent: null
+- id: semantic-store
+  name: Semantic store
+  role: state
+  responsibility: Reads and writes .codemap/ as reviewable text in a stable order.
+  parent: semantic-layer
+- id: changeset-rules
+  name: Changeset rules
+  role: core
+  responsibility: Decides whether a proposed change to the semantic layer is true to the code before it is written.
+  parent: semantic-layer
+- id: agent-views
+  name: Agenda and context
+  role: interface
+  responsibility: 'What an agent reads to decide its next step: the agenda, outlines, context of a region.'
+  parent: semantic-layer
+- id: map-builder
+  name: Map builder
+  role: core
+  responsibility: Turns the index and the semantic layer into a laid-out, chunked static site.
+  parent: null
+- id: viewer
+  name: Map viewer
+  role: presentation
+  responsibility: 'The zoomable map in the browser: regions, files, symbols, relations and tours.'
+  parent: null
+- id: agent-skill
+  name: Agent skill
+  role: orchestration
+  responsibility: Teaches a coding agent how to divide a repository and keep its map true.
+  parent: null
+- id: verification
+  name: Tests
+  role: tooling
+  responsibility: Fixture repositories and end-to-end checks for every layer.
+  parent: null
+- id: project
+  name: Project and release
+  role: tooling
+  responsibility: Packaging, CI, PyPI releases and the workflow that publishes this map.
+  parent: null
