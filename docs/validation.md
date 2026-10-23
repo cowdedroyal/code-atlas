@@ -30,7 +30,7 @@ All six had zero parser failures. These are representative projects, not one lar
 | C# | commandlineparser/commandline | 1e3607b97af6141743edb3c434c06d5b492f6fb3 | 204 | 1,987 |
 
 C# namespace cycles exposed repeated export traversal. Visited lookup pairs and a per-scan cache now
-bound this search. A deterministic sample of 20 cross-file call edges found four incorrect unknown-receiver
+bound this search. A deterministic sample of 20 cross-file call edges found three incorrect unknown-receiver
 matches (Go `t.Logf`, Rust `scratch.clear`, C++ `std::move`); the mocked close call was ambiguous without
 expanding its macro, rather than a proven wrong target. Global-unique lookup now
 accepts only bare names; unknown dotted receivers are omitted instead of mapped to unrelated methods.
@@ -43,6 +43,8 @@ A generated Python repository with **50,000 files and 500,000 functions** scanne
 static data without source in **21.20 s**, producing 200 symbol chunks and no parse failures. Generation
 took 52 s. The fixture has no call edges, so this measures node volume rather than a dense dependency graph;
 large-scale browser frame times and dense-edge performance remain unmeasured.
+Browser smoke testing of this generated map loaded the overview in about 2.94 s with zero symbol-chunk
+requests; navigating to a file requested four chunks and produced no runtime errors. This is not a frame-time benchmark.
 
 ## Remaining boundaries
 
@@ -53,9 +55,12 @@ large-scale browser frame times and dense-edge performance remain unmeasured.
   edge bundling. Selected edges remain direct.
 - `serve` watches semantic files, not arbitrary source edits. Rebuild/scan after source changes; refresh
   the browser after any data rebuild. Automatic browser reload is not implemented.
-- Linux/macOS CI runs require the GitHub workflow to execute; local Windows results do not verify them.
+- [CI run 39949977702](https://github.com/cowdedroyal/code-atlas/actions/runs/39949977702) succeeded:
+  Python 3.12/3.13 across Windows/Linux/macOS, plus the frontend tests/build.
 - No release tag or PyPI upload has been made. Configure the PyPI trusted publisher for owner
   `cowdedroyal`, repository `code-atlas`, workflow `release.yml`, environment `pypi` before publishing.
   GitHub Pages requires Actions as its deployment source and a successful Pages workflow.
+  [Pages run 39949977648](https://github.com/cowdedroyal/code-atlas/actions/runs/39949977648) built the
+  site but deployment failed with 404; the log says Pages has not been enabled in repository settings.
 - artist_agent received a first batch of 6 important-file and 5 symbol notes. Its remaining annotation
   agenda is not exhausted and its `.codemap` remains uncommitted, as requested.
