@@ -2,8 +2,8 @@
 id: scan-a-repository
 title: From codeatlas scan to the index
 summary: How a working tree becomes files, symbols and resolved edges — and why a second scan is fast.
-run: tour-01
-at: '2026-10-23T15:08:48'
+run: confirm-published-anchors
+at: '2026-10-23T21:04:59'
 steps:
 - at: src/code_atlas/cli.py#scan
   text: 'The command people and agents run first. Everything after this is deterministic: no LLM is involved in
@@ -12,7 +12,7 @@ steps:
 - at: src/code_atlas/scan.py#scan
   text: 'Loads the previous file table and parse cache, then decides per file: reuse the cached facts, or parse
     again. Only content changes trigger a parse.'
-  anchor: cc9a47dc27ec94d3
+  anchor: 4c3a2e222a3b83f3
 - at: src/code_atlas/discover.py#discover
   text: Lists files through git and classifies them; vendored, generated, data and binary files never reach the
     parser. Unchanged files keep their class without being opened.

@@ -2,24 +2,24 @@
 id: index-to-browser
 title: From the index to the map in the browser
 summary: How codeatlas build lays the map out and what the viewer does with it.
-run: tour-01
-at: '2026-10-23T15:08:48'
+run: confirm-published-anchors
+at: '2026-10-23T21:04:59'
 steps:
 - at: src/code_atlas/cli.py#build
   text: 'Builds a static site: viewer assets plus JSON. Nothing runs on a server, so the result can be hosted anywhere.'
-  anchor: 841755c25029d0dd
+  anchor: 2c4f1e0be1cbe84a
 - at: src/code_atlas/site.py#build_data
   text: Loads the index and the semantic layer and assembles everything the viewer needs, including staleness and
     tour chains.
-  anchor: 9c2aca37bbe98f81
+  anchor: a6752c1731c73763
 - at: src/code_atlas/semantic/regions.py#effective_regions
   text: 'Which region each file is in: the agent''s regions when there are any, directory-based drafts otherwise;
     files no rule claims go to Unassigned.'
-  anchor: b7f3eea0389df204
+  anchor: 02ae690a786e8709
 - at: src/code_atlas/layout.py#layout
   text: 'Sizes bottom-up, positions top-down: every file reserves the box its symbols need, so dots can become boxes
     without overlapping.'
-  anchor: 87c457d2f9b41173
+  anchor: a7e4eda3722f39fc
 - at: src/code_atlas/site.py#_chunk_files
   text: Splits symbols into chunks of at most a few thousand along the region tree, so the viewer only fetches what
     is on screen.
@@ -28,7 +28,7 @@ steps:
   text: 'The browser side. There is no code reference from here to the builder: they meet only through the JSON
     files.'
   via_relation: rel-c9180b8f85
-  anchor: 792e06b482272131
+  anchor: bb660a0ab25bf60d
 - at: frontend/src/data.ts#loadGraph
   text: Fetches graph.json — regions, files, file edges, relations, tours. Chunks, source and the search index come
     later, on demand.
@@ -36,4 +36,4 @@ steps:
 - at: frontend/src/MapView.tsx#MapView
   text: 'Semantic zoom: by on-screen size, regions give way to file dots and dots to symbol boxes; edges follow
     whatever is hovered or selected.'
-  anchor: 983f4785ad8151f0
+  anchor: 7b43162e997320a3
