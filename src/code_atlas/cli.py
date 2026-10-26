@@ -242,6 +242,14 @@ def serve(repo: Path = RepoOpt,
         def log_message(self, *args):
             pass
 
+        def end_headers(self):
+            # index.html and the JSON payloads are rebuilt in place; only /assets/ names are content-hashed.
+            if self.path.split("?", 1)[0].startswith("/assets/"):
+                self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            else:
+                self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
     handler = functools.partial(Quiet, directory=str(out))
     httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
     stopped = threading.Event()

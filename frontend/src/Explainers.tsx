@@ -43,6 +43,14 @@ const MIN_W = 360, MIN_H = 240;
 const HANDLES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"] as const;
 type Handle = (typeof HANDLES)[number];
 
+/** The card's natural width (46rem column + 3rem padding): below this it stays at scale 1 and wraps. */
+const BASE_W = 784, MIN_SCALE = 1, MAX_SCALE = 3;  // 3 is the kit's own ceiling for --ex-scale
+
+/** Keep the card's line length while its type follows the window: wider reader, larger text. */
+function scaleFor(width: number): number {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round((width / BASE_W) * 100) / 100));
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** Keeps a box inside the viewport and above the minimum size (or the viewport, if that is smaller). */
@@ -72,8 +80,25 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   const [height, setHeight] = useState(240);
   const [box, setBox] = useState<Box | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
   const drag = useRef<{ handle: Handle; x: number; y: number; start: Box } | null>(null);
   const language = card.language ?? graph.meta.language;
+
+  // The card kit takes a scale (<html> rem size); track the reader width so resizing enlarges its text too.
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    const apply = () => setScale(scaleFor(el.clientWidth));
+    apply();
+    if (typeof ResizeObserver !== "function") {
+      window.addEventListener("resize", apply);
+      return () => window.removeEventListener("resize", apply);
+    }
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // A window resize must not leave a dragged box hanging outside the viewport.
   useEffect(() => {
@@ -90,8 +115,8 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   }, [card.id]);
 
   const sendTheme = () =>
-    frame.current?.contentWindow?.postMessage({ type: "atlas:theme", theme: dark ? "dark" : "light", lang: language, scale: 1 }, "*");
-  useEffect(sendTheme, [dark, language]);
+    frame.current?.contentWindow?.postMessage({ type: "atlas:theme", theme: dark ? "dark" : "light", lang: language, scale }, "*");
+  useEffect(sendTheme, [dark, language, scale]);
 
   useEffect(() => {
     const on = (e: MessageEvent) => {
@@ -153,7 +178,7 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
           </div>
           <button className="close" onClick={close} aria-label={t("close")}>×</button>
         </header>
-        <div className="reader-body">
+        <div className="reader-body" ref={body}>
           {html === undefined ? <div className="muted">…</div>
             : html === null ? <div className="muted">{t("cardUnavailable")}</div>
             : <iframe ref={frame} className="reader-frame" title={card.title} sandbox="allow-scripts" srcDoc={html}
