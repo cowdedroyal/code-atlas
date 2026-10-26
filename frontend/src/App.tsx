@@ -3,10 +3,11 @@ import MapView, { fitView, type ViewState } from "./MapView";
 import Panel from "./Panel";
 import Search from "./Search";
 import { TourBar, TourMenu } from "./Tour";
+import { ExplainerReader } from "./Explainers";
 import { loadChunk, loadGraph, loadSearch } from "./data";
 import { EDGE_COLOR, ROLE_COLOR, ROLES } from "./palette";
 import { t, type Key } from "./i18n";
-import type { Chunk, Graph, Level, LevelLock, Selection } from "./types";
+import type { Chunk, Explainer, Graph, Level, LevelLock, Selection } from "./types";
 
 function useWindowSize() {
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -26,6 +27,7 @@ export default function App() {
   const [level, setLevel] = useState<Level>(0);
   const [levelLock, setLevelLock] = useState<LevelLock | null>(null);
   const [panelWidth, setPanelWidth] = useState(400);
+  const [reading, setReading] = useState<Explainer | null>(null);
   const [dark, setDark] = useState(() => localStorage.getItem("codeatlas-theme") === "dark" ||
     (!localStorage.getItem("codeatlas-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches));
   useEffect(() => { document.documentElement.dataset.theme = dark ? "dark" : "light"; }, [dark]);
@@ -146,7 +148,8 @@ export default function App() {
         </div>
       </footer>
       {selection && <Panel graph={graph} chunks={chunks} selection={selection} navigate={navigate} close={() => setSelection(null)}
-                           width={actualPanelWidth} setWidth={setPanelWidth} />}
+                           width={actualPanelWidth} setWidth={setPanelWidth} openCard={setReading} />}
+      {reading && <ExplainerReader card={reading} graph={graph} dark={dark} close={() => setReading(null)} navigate={navigate} />}
     </div>
   );
 }

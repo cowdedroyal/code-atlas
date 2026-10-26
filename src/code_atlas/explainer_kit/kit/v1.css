@@ -1,0 +1,141 @@
+/* atlas-explainer kit v1 — stylesheet.
+ * Colours come from CSS variables so the host can switch light/dark with
+ * <html data-theme="light|dark">; without a host the system preference applies. */
+
+:root {
+  --ex-bg: #fbfbf9;
+  --ex-surface: #f2f2ee;
+  --ex-fg: #1d2127;
+  --ex-muted: #667085;
+  --ex-line: #dcdcd4;
+  --ex-accent: #2a6f97;
+  --ex-accent-soft: #e3eef5;
+  --ex-add: #1f7a4d;
+  --ex-add-bg: #dff3e7;
+  --ex-del: #b3402f;
+  --ex-del-bg: #f8e1dc;
+  --ex-warn: #9a6700;
+  --ex-warn-bg: #fbf0d3;
+  --ex-real: #1f7a4d;
+  --ex-scale: 1;
+  --ex-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --ex-sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ex-bg: #14171b; --ex-surface: #1c2025; --ex-fg: #e4e6ea; --ex-muted: #98a2b3; --ex-line: #2f353d;
+    --ex-accent: #6aa9cf; --ex-accent-soft: #1d2d38;
+    --ex-add: #5bc08a; --ex-add-bg: #17301f; --ex-del: #ec8b7a; --ex-del-bg: #3a1f1a;
+    --ex-warn: #e0b04a; --ex-warn-bg: #33290f; --ex-real: #5bc08a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ex-bg: #14171b; --ex-surface: #1c2025; --ex-fg: #e4e6ea; --ex-muted: #98a2b3; --ex-line: #2f353d;
+  --ex-accent: #6aa9cf; --ex-accent-soft: #1d2d38;
+  --ex-add: #5bc08a; --ex-add-bg: #17301f; --ex-del: #ec8b7a; --ex-del-bg: #3a1f1a;
+  --ex-warn: #e0b04a; --ex-warn-bg: #33290f; --ex-real: #5bc08a;
+  color-scheme: dark;
+}
+
+html { font-size: calc(16px * var(--ex-scale)); }
+body {
+  margin: 0; padding: 1.25rem 1.5rem 2.5rem; max-width: 46rem;
+  background: var(--ex-bg); color: var(--ex-fg);
+  font: 400 1rem/1.7 var(--ex-sans);
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .4rem; }
+h2 { font-size: 1.2rem; line-height: 1.35; margin: 2.2rem 0 .6rem; padding-top: .9rem; border-top: 1px solid var(--ex-line); }
+h3 { font-size: 1.02rem; margin: 1.4rem 0 .4rem; }
+p, ul, ol { margin: .6rem 0; }
+a { color: var(--ex-accent); }
+code, kbd, samp { font: .88em/1.5 var(--ex-mono); background: var(--ex-surface); padding: .08em .35em; border-radius: 4px; }
+pre { font: .86rem/1.55 var(--ex-mono); background: var(--ex-surface); padding: .7rem .9rem; border-radius: 6px; overflow-x: auto; margin: .6rem 0; }
+pre code { background: none; padding: 0; }
+.ex-lead { color: var(--ex-muted); margin-top: 0; }
+
+/* ---- plain tables -------------------------------------------------- */
+table { border-collapse: collapse; font-size: .88rem; width: 100%; }
+th, td { border: 1px solid var(--ex-line); padding: .3rem .6rem; text-align: left; vertical-align: top; }
+th { background: var(--ex-surface); font-weight: 600; white-space: nowrap; }
+td { font-family: var(--ex-mono); font-size: .84rem; }
+
+/* ---- <ex-qa q="…"> : a reader's question and its answer ----------------- */
+ex-qa { display: block; margin: 2rem 0 .5rem; }
+ex-qa::before {
+  content: attr(q);
+  display: block; font-size: 1.12rem; font-weight: 650; line-height: 1.4;
+  padding: .55rem .8rem; border-left: 3px solid var(--ex-accent); background: var(--ex-accent-soft); border-radius: 0 6px 6px 0;
+  margin-bottom: .6rem;
+}
+
+/* ---- <ex-table source="real|illustrative" origin="…" at="…"> ----------------- */
+ex-table { display: block; margin: .9rem 0; border: 1px solid var(--ex-line); border-radius: 6px; overflow: hidden; }
+ex-table > table { border: 0; margin: 0; }
+ex-table > table :is(th, td) { border-left: 0; border-right: 0; }
+ex-table > table tr:last-child td { border-bottom: 0; }
+ex-table .ex-scroll { overflow-x: auto; }
+ex-table .ex-badge {
+  display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: baseline;
+  padding: .3rem .7rem; font-size: .78rem; line-height: 1.5; border-bottom: 1px solid var(--ex-line);
+}
+ex-table .ex-badge b { font-weight: 650; }
+ex-table .ex-badge span { color: var(--ex-muted); }
+ex-table[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
+ex-table[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
+ex-table:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-table .ex-cap { padding: .35rem .7rem; font-size: .8rem; color: var(--ex-muted); border-top: 1px solid var(--ex-line); }
+
+/* ---- <ex-flow> / <ex-stage title tag> : one thing travelling through stages ---- */
+ex-flow { display: block; margin: 1rem 0; counter-reset: ex-stage; position: relative; }
+ex-stage { display: block; position: relative; counter-increment: ex-stage; margin: 0 0 .9rem 2.2rem; }
+ex-stage::before {            /* the line down the left, drawn per stage so it ends at the last one */
+  content: ""; position: absolute; left: -1.45rem; top: 1.9rem; bottom: -1.05rem; width: 2px; background: var(--ex-line);
+}
+ex-stage:last-child::before { display: none; }
+ex-stage .ex-head {
+  all: unset; box-sizing: border-box; display: flex; width: 100%; gap: .6rem; align-items: baseline; cursor: pointer;
+  padding: .45rem .7rem; border: 1px solid var(--ex-line); border-radius: 6px; background: var(--ex-surface);
+}
+ex-stage .ex-head:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+ex-stage .ex-head::before {
+  content: counter(ex-stage); position: absolute; left: -2.2rem; top: .2rem;
+  width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--ex-accent); color: var(--ex-bg);
+  font: 650 .8rem/1.6rem var(--ex-sans); text-align: center;
+}
+ex-stage .ex-title { font-weight: 650; flex: 1; }
+ex-stage .ex-tag { font: .76rem var(--ex-mono); color: var(--ex-muted); }
+ex-stage .ex-caret { color: var(--ex-muted); transition: transform .15s; }
+ex-stage[data-open="false"] .ex-caret { transform: rotate(-90deg); }
+ex-stage[data-open="false"] .ex-body { display: none; }
+ex-stage .ex-body { padding: .6rem .2rem 0; }
+ex-stage .ex-io { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: .2rem 0 .6rem; }
+@media (max-width: 34rem) { ex-stage .ex-io { grid-template-columns: 1fr; } }
+ex-in, ex-out { display: block; min-width: 0; border: 1px solid var(--ex-line); border-radius: 6px; padding: .45rem .7rem .5rem; }
+ex-in::before, ex-out::before { display: block; font-size: .74rem; font-weight: 650; letter-spacing: .04em; color: var(--ex-muted); margin-bottom: .2rem; }
+ex-in::before { content: "IN"; } ex-out::before { content: "OUT"; }
+:root[lang^="zh"] ex-in::before { content: "进来"; } :root[lang^="zh"] ex-out::before { content: "出去"; }
+ex-in pre, ex-out pre { margin: .2rem 0 0; }
+ex-why { display: block; padding: .4rem .7rem; border-left: 3px solid var(--ex-warn); background: var(--ex-warn-bg); border-radius: 0 6px 6px 0; }
+ex-why::before { content: "WHY  "; font-size: .74rem; font-weight: 650; letter-spacing: .04em; color: var(--ex-warn); }
+:root[lang^="zh"] ex-why::before { content: "为什么  "; }
+
+/* ---- <ex-compare><ex-before>…</ex-before><ex-after>…</ex-after></ex-compare> --- */
+ex-compare { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: .9rem 0; }
+@media (max-width: 34rem) { ex-compare { grid-template-columns: 1fr; } }
+ex-before, ex-after { display: block; min-width: 0; border: 1px solid var(--ex-line); border-radius: 6px; overflow: hidden; }
+ex-before::before, ex-after::before {
+  display: block; padding: .25rem .7rem; font-size: .76rem; font-weight: 650; letter-spacing: .04em;
+  border-bottom: 1px solid var(--ex-line); background: var(--ex-surface); color: var(--ex-muted);
+}
+ex-before::before { content: attr(label); } ex-after::before { content: attr(label); }
+ex-before:not([label])::before { content: "BEFORE"; } ex-after:not([label])::before { content: "AFTER"; }
+:root[lang^="zh"] ex-before:not([label])::before { content: "处理前"; }
+:root[lang^="zh"] ex-after:not([label])::before { content: "处理后"; }
+ex-before pre, ex-after pre { margin: 0; border-radius: 0; white-space: pre-wrap; }
+ex-before del, ex-after ins { text-decoration: none; border-radius: 3px; padding: 0 1px; }
+ex-before del { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-after ins { background: var(--ex-add-bg); color: var(--ex-add); }

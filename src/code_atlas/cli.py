@@ -133,6 +133,56 @@ def revert(run: str, repo: Path = RepoOpt):
     emit(r(repo.resolve(), run))
 
 
+card_app = typer.Typer(help="Explainer cards: visual answers to a reader's questions, hung on the code they explain.")
+app.add_typer(card_app, name="card")
+
+
+@card_app.command("validate")
+def card_validate(path: Path = typer.Argument(..., help="Card directory (card.yaml + index.html)."), repo: Path = RepoOpt):
+    """Dry-run a card: lint its files and check every anchor against the index."""
+    from .semantic.explainers import validate_card
+    report = validate_card(repo.resolve(), path.resolve())
+    emit(report)
+    raise typer.Exit(0 if report["ok"] else 1)
+
+
+@card_app.command("apply")
+def card_apply(path: Path = typer.Argument(..., help="Card directory (card.yaml + index.html)."), repo: Path = RepoOpt,
+               run: str = typer.Option(None, help="Run id (default: timestamp).")):
+    """Validate a card and write it into .codemap/explainers/ (same id replaces; identical content changes nothing)."""
+    from .semantic.explainers import apply_card
+    report = apply_card(repo.resolve(), path.resolve(), run)
+    emit(report)
+    raise typer.Exit(0 if report["ok"] else 1)
+
+
+@card_app.command("search")
+def card_search(query: str = typer.Argument("", help="Words from the title, questions, summary or tags; empty lists all."),
+                anchor: str = typer.Option(None, help="Only cards that explain this file, symbol or region:<id>."),
+                repo: Path = RepoOpt, limit: int = typer.Option(10)):
+    """Find existing cards — run before writing a new one, and update a match instead of adding a duplicate."""
+    from .semantic.explainers import search_cards
+    emit(search_cards(repo.resolve(), query, anchor, limit))
+
+
+@card_app.command("confirm")
+def card_confirm(card_id: str, repo: Path = RepoOpt, run: str = typer.Option(None)):
+    """After reviewing a stale card against the current code, refresh its anchors without changing its text."""
+    from .semantic.explainers import confirm_card
+    report = confirm_card(repo.resolve(), card_id, run)
+    emit(report)
+    raise typer.Exit(0 if report["ok"] else 1)
+
+
+@card_app.command("delete")
+def card_delete(card_id: str, repo: Path = RepoOpt, run: str = typer.Option(None)):
+    """Remove a card (revertible with `codeatlas revert <run>`)."""
+    from .semantic.explainers import delete_card
+    report = delete_card(repo.resolve(), card_id, run)
+    emit(report)
+    raise typer.Exit(0 if report["ok"] else 1)
+
+
 skill_app = typer.Typer(help="The agent skill that writes the semantic layer.")
 app.add_typer(skill_app, name="skill")
 

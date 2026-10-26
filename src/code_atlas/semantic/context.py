@@ -179,8 +179,12 @@ def semantic_status(repo: Path, idx: Index | None = None) -> dict:
     regions, assign, _ = effective_regions(idx.mapped, sem, repo.name)
     unassigned = sum(1 for r in assign.values() if owner_of(regions, r) == UNASSIGNED)
     stale = staleness(repo, idx, sem)
+    from .explainers import card_status, load_cards
+    cards = load_cards(repo)
+    card_issues = card_status(idx, sem, cards)
     return {"regions": len(sem.regions), "assigned_files": len(idx.mapped) - unassigned if sem.regions else 0,
             "unassigned_files": unassigned if sem.regions else len(idx.mapped),
             "notes": len(sem.notes), "relations": len(sem.relations), "tours": len(sem.tours),
             "stale": sum(1 for v in stale.values() if v == "stale"), "orphaned": sum(1 for v in stale.values() if v == "orphan"),
+            "explainers": len(cards), "explainers_stale": len(card_issues),
             "runs": len(store.read_log(repo))}

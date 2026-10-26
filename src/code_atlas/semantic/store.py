@@ -7,6 +7,7 @@
                                 files and symbols sharded by their top-level directory
     .codemap/relations.jsonl    semantic relations, one per line, sorted by id
     .codemap/tours/<id>.yaml    guided tours: an ordered walk through the code with one sentence per step
+    .codemap/explainers/<id>/   explainer cards: card.yaml + index.html (see explainers.py)
     .codemap/log.jsonl          one line per applied changeset
 
 Everything is written in a stable order so that a change shows up as a small diff.
@@ -147,10 +148,11 @@ def snapshot(repo: Path) -> dict[str, str]:
     for name in SEMANTIC_FILES:
         if (d / name).exists():
             out[name] = (d / name).read_text("utf-8")
-    for sub, pattern in (("notes", "*.jsonl"), ("tours", "*.yaml")):
+    for sub, pattern in (("notes", "*.jsonl"), ("tours", "*.yaml"), ("explainers", "*/*")):
         if (d / sub).exists():
             for f in (d / sub).glob(pattern):
-                out[f"{sub}/{f.name}"] = f.read_text("utf-8")
+                if f.is_file():
+                    out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
     return out
 
 
@@ -164,4 +166,8 @@ def restore(repo: Path, files: dict[str, str]) -> None:
         if name == "log.jsonl":
             continue
         (d / name).parent.mkdir(parents=True, exist_ok=True)
-        (d / name).write_text(text, encoding="utf-8")
+        (d / name).write_text(text, encoding="utf-8", newline="\n" if name.startswith("explainers/") else None)
+    cards = d / "explainers"
+    for sub in cards.glob("*") if cards.exists() else []:  # a card directory emptied by the loop above
+        if sub.is_dir() and not any(sub.iterdir()):
+            sub.rmdir()

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas explainer card manifest (card.yaml, kit 1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kit", "id", "title", "questions", "summary", "anchors"],
+  "properties": {
+    "kit": {
+      "const": 1,
+      "description": "Version of the component kit and of this manifest format. A viewer declares the range it supports."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "description": "Stable slug; also the directory name under .codemap/explainers/. Re-applying a card with the same id replaces it."
+    },
+    "title": {"type": "string", "minLength": 1, "maxLength": 60, "description": "Plain text; shown in lists."},
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {"type": "string", "minLength": 1, "maxLength": 200},
+      "description": "The reader's own words. Used for search and for finding an existing card before writing a new one."
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Plain text; one or two sentences shown under the title."},
+    "anchors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 24,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 300},
+      "description": "What the card explains: a file path, a symbol id `path#Qual.name`, or `region:<id>`. The viewer checks they exist and records their hashes for staleness."
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[\\w.-]{1,24}$"}
+    },
+    "language": {"type": "string", "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]+)?$", "description": "Language of the card text (matches .codemap/config.yaml)."},
+    "anchor_hashes": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "null"]},
+      "description": "Written by `apply`/`confirm`: content hash of each anchor when the card was written or last confirmed. A different hash now means the code changed since."
+    },
+    "run": {"type": "string", "description": "Written by `apply`: the run that last wrote the card."},
+    "at": {"type": "string", "description": "Written by `apply`: ISO timestamp of that run."}
+  }
+}

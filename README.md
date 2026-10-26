@@ -131,6 +131,28 @@ the map with the real call chain drawn between stops (← / → to step). Every 
 earlier one through the scanned calls, or through a recorded relation for links static analysis cannot see
 (HTTP, WebSocket, subprocesses, files on disk), so a tour can't describe a path that isn't in the code.
 
+## Explainer cards
+
+Readers get stuck in places an agent can't predict. A **card** keeps the answer: a small visual page (a real data sample
+walked through the stages that transform it, a before/after, a numbered flow) hung on the files, symbols or regions it
+explains, stored in `.codemap/explainers/<id>/` and committed with the rest of the map.
+
+```bash
+codeatlas card search "parquet"             # is there already a card on this? update it instead of adding another
+codeatlas card validate DIR                 # DIR holds card.yaml + index.html; lints the page, checks every anchor exists
+codeatlas card apply DIR                    # write it into .codemap/explainers/ (same id replaces; revertible)
+codeatlas card confirm ID                   # after reviewing a stale card against the current code
+codeatlas card delete ID
+```
+
+Select an anchored node and the detail panel lists its cards under **Explanations** (a file also lists the cards on its
+symbols, a symbol the cards on its class). A card opens in a reading layer: a sandboxed iframe with no network access whose
+colours follow the viewer's theme. Like notes, a card records a hash of each anchor; when the code changes it is marked
+stale, shows up in `agenda`, and `card confirm` refreshes it. Pages are written with the
+[atlas-explainer](../atlas-explainer) component kit; `build` inlines the kit and a Content-Security-Policy, and skips (and reports)
+any card that no longer passes lint. The vendored kit in `src/code_atlas/explainer_kit/` is refreshed with
+`uv run python scripts/sync_explainer_kit.py`. Design: [docs/explainer-design.md](docs/explainer-design.md).
+
 ## Language support
 
 | Tier | Languages | What you get |

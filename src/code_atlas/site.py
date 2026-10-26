@@ -5,6 +5,7 @@
     site/data/search.json                 every symbol's name, kind and box — fetched on first search
     site/data/chunks/<n>.json             symbols + symbol edges of a group of files, ≤ CHUNK_SYMBOLS symbols (L2/L3)
     site/data/code/<n>.json               source text of that chunk's files (omitted with --no-source)
+    site/data/explainers/<id>.html        explainer cards, packed (kit and CSP inlined); listed in graph.json
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from .graphdata import file_of, load_index
 from .layout import align_translation, layout
 from .index import cache_dir
 from .semantic import store
+from .explainer_kit.pack import lint_card, pack_html
 from .semantic.agenda import staleness
+from .semantic.explainers import card_status, cards_dir, load_cards
 from .semantic.tours import tour_status
 from .semantic.regions import effective_regions
 from .semantic.store import REGION_PREFIX
@@ -128,6 +131,8 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
             for r in sem.relations.values()) if rel["src"] and rel["dst"]],
         "tours": _tours(sem, tour_status(idx, sem), boxes, r_index, f_index),
     }
+    cards = load_cards(repo)
+    graph["explainers"], card_pages, skipped_cards = _explainers(repo, cards, card_status(idx, sem, cards))
     # search index (name, kind, file index, id, box): its own file, fetched on first search
     search = [[s["name"], s["kind"], f_index[s["path"]], s["id"], *_round(boxes[s["id"]])] for s in syms]
     chunks = []
@@ -183,7 +188,8 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
         syntax.append(syntax_chunk)
     if stable_layout:
         layout_cache.write_text(json.dumps(boxes), "utf-8")
-    return {"graph": graph, "chunks": chunks, "search": search, "syntax": syntax}
+    return {"graph": graph, "chunks": chunks, "search": search, "syntax": syntax, "cards": card_pages,
+            "skipped_cards": skipped_cards}
 
 
 CHUNK_SYMBOLS = 2500  # a chunk is fetched when any of its files opens to L2; keep each one small
@@ -260,6 +266,23 @@ def _tours(sem, status: dict, boxes: dict, r_index: dict, f_index: dict) -> list
     return out
 
 
+def _explainers(repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> tuple[list[dict], dict[str, str], dict]:
+    """Card list for graph.json, the packed page of each, and the cards left out because they no longer lint."""
+    listed, pages, skipped = [], {}, {}
+    for cid in sorted(cards):
+        c, d = cards[cid], cards_dir(repo) / cid
+        problems = lint_card(d)
+        if problems:
+            skipped[cid] = problems[:5]
+            continue
+        pages[cid] = pack_html((d / "index.html").read_text("utf-8"), c)
+        listed.append({"id": cid, "title": c["title"], "summary": c["summary"], "questions": c["questions"],
+                       "anchors": c["anchors"], "tags": c.get("tags", []), "language": c.get("language"),
+                       "at": c.get("at"), **({"state": state[cid]["state"], "stale_nodes": state[cid]["nodes"]}
+                                             if cid in state else {})})
+    return listed, pages, skipped
+
+
 def _asset_counts(files: dict) -> dict:
     out: dict[str, int] = defaultdict(int)
     for f in files.values():
@@ -303,6 +326,11 @@ def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index
             dump(code, ddir / "code" / f"{i}.json")
             if data["syntax"][i]:
                 dump(data["syntax"][i], ddir / "syntax" / f"{i}.json")
+    if data["cards"]:
+        (ddir / "explainers").mkdir()
+        for cid, page in data["cards"].items():
+            (ddir / "explainers" / f"{cid}.html").write_text(page, encoding="utf-8")
     g = data["graph"]
     return {"ok": True, "out": str(out), "regions": len(g["regions"]), "files": len(g["files"]),
-            "symbols": g["meta"]["symbols"], "chunks": g["chunks"], "viewer": WEB_DIR.exists()}
+            "symbols": g["meta"]["symbols"], "chunks": g["chunks"], "viewer": WEB_DIR.exists(),
+            "explainers": len(g["explainers"]), **({"skipped_cards": data["skipped_cards"]} if data["skipped_cards"] else {})}

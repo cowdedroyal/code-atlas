@@ -78,6 +78,11 @@ def agenda(repo: Path, limit: int = 20, types: list[str] | None = None, idx: Ind
         tasks.append({"type": "refresh", "target": nid, "reason": f"{why}: the code it describes changed" if why == "stale"
                       else f"{why}: the code it points to no longer exists",
                       "hint": f"codeatlas show {sem.relations[nid]['src'] if nid in sem.relations else nid} --code"})
+    from .explainers import card_status, load_cards
+    for cid, st in card_status(idx, sem, load_cards(repo)).items():
+        tasks.append({"type": "refresh", "target": f"card:{cid}", "reason": {
+            "stale": "card: the code it explains changed", "orphan": "card: code it explains no longer exists"}[st["state"]],
+            "anchors": st["nodes"][:6], "hint": f"codeatlas card confirm {cid}"})
     for tid, st in tour_status(idx, sem).items():
         if st["state"]:
             bad = [sem.tours[tid]["steps"][i]["at"] for i, s in enumerate(st["steps"]) if s]
