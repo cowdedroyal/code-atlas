@@ -181,8 +181,10 @@ def test_cli_card_commands(tmp_path):
 
 def test_vendored_kit_matches_atlas_explainer_when_available():
     script = Path(__file__).parent.parent / "scripts" / "sync_explainer_kit.py"
-    sibling = Path(os.environ.get("ATLAS_EXPLAINER_DIR") or script.parent.parent.parent / "atlas-explainer")
-    if not (sibling / "src" / "atlas_explainer").is_dir():
-        pytest.skip("atlas-explainer checkout not present")
+    root = script.parent.parent
+    candidates = [Path(os.environ["ATLAS_EXPLAINER_DIR"])] if os.environ.get("ATLAS_EXPLAINER_DIR") else [
+        root / "extensions" / "atlas-explainer", root.parent / "atlas-explainer"]
+    if not any((c / "src" / "atlas_explainer").is_dir() for c in candidates):
+        pytest.skip("atlas-explainer checkout not present (git submodule update --init)")
     done = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr

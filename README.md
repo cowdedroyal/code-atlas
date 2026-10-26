@@ -149,8 +149,10 @@ Select an anchored node and the detail panel lists its cards under **Explanation
 symbols, a symbol the cards on its class). A card opens in a reading layer: a sandboxed iframe with no network access whose
 colours follow the viewer's theme. Like notes, a card records a hash of each anchor; when the code changes it is marked
 stale, shows up in `agenda`, and `card confirm` refreshes it. Pages are written with the
-[atlas-explainer](../atlas-explainer) component kit; `build` inlines the kit and a Content-Security-Policy, and skips (and reports)
-any card that no longer passes lint. The vendored kit in `src/code_atlas/explainer_kit/` is refreshed with
+[atlas-explainer](https://github.com/cowdedroyal/atlas-explainer) component kit, which is plugged in as the git submodule
+`extensions/atlas-explainer` (`git clone --recurse-submodules`, or `git submodule update --init` in an existing clone).
+`build` inlines the kit and a Content-Security-Policy, and skips (and reports) any card that no longer passes lint. The
+vendored kit in `src/code_atlas/explainer_kit/` is refreshed from the submodule with
 `uv run python scripts/sync_explainer_kit.py`. Design: [docs/explainer-design.md](docs/explainer-design.md).
 
 ## Language support

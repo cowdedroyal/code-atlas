@@ -159,7 +159,7 @@ skill 要求 agent 按这个顺序工作：
 | 示例卡片（含用 `meshvl` 数据流水线写的那张）与独立预览页 | 把套件和 skill 随 wheel 一起打包（同现有 `skill install` 的做法） |
 
 两边靠**格式版本号**耦合：`card.yaml` 带 `kit: 1`，查看器声明自己支持的范围；新仓库升级套件但不破坏 v1，查看器无需同步发布。
-**实现时改为：** 校验逻辑（lint、打包、Schema、套件）只在新仓库里写一份；Code Atlas 通过 `scripts/sync_explainer_kit.py` 把它们复制到 `src/code_atlas/explainer_kit/` 并提交（测试里有漂移检查）。这样 Code Atlas 的 CI 和发布不依赖另一个未发布的包；代价是改套件后要同步一次。锚点校验、过期判断、`build` 汇总和查看器仍在 Code Atlas。
+**实现时改为：** 校验逻辑（lint、打包、Schema、套件）只在新仓库里写一份；Code Atlas 通过 `scripts/sync_explainer_kit.py` 把它们复制到 `src/code_atlas/explainer_kit/` 并提交（测试里有漂移检查）。这样 Code Atlas 的 CI 和发布不依赖另一个未发布的包；代价是改套件后要同步一次。atlas-explainer 以 git 子模块 `extensions/atlas-explainer` 挂在主仓库下（主体 + 可插拔子模块）：同步脚本优先从子模块取源，其次 `$ATLAS_EXPLAINER_DIR`，最后是并列的 `../atlas-explainer` 检出；比较时忽略 CRLF/LF 差异，写入时统一为 LF。锚点校验、过期判断、`build` 汇总和查看器仍在 Code Atlas。
 
 ## 9. 用 meshvl 那组问题做个验证
 
