@@ -18,7 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEST = ROOT / "src" / "code_atlas" / "explainer_kit"
-FILES = ["__init__.py", "pack.py", "card.schema.json", "kit/v1.css", "kit/v1.js"]
+FILES = ["__init__.py", "pack.py", "media.py", "card.schema.json", "kit/v1.css", "kit/v1.js",
+         "media/vendor/vega.min.js", "media/vendor/vega-interpreter.min.js", "media/vendor/README.md"]
 
 
 def source_dir() -> Path:

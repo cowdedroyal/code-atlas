@@ -139,11 +139,19 @@ explains, stored in `.codemap/explainers/<id>/` and committed with the rest of t
 
 ```bash
 codeatlas card search "parquet"             # is there already a card on this? update it instead of adding another
+codeatlas card bake DIR                     # render its animation frames and Vega-Lite charts into DIR/media/
 codeatlas card validate DIR                 # DIR holds card.yaml + index.html; lints the page, checks every anchor exists
 codeatlas card apply DIR                    # write it into .codemap/explainers/ (same id replaces; revertible)
 codeatlas card confirm ID                   # after reviewing a stale card against the current code
 codeatlas card delete ID
 ```
+
+A card can also show a short **animation** (rendered with Motion Canvas or Manim, or any tool that writes stills or a
+video) and a **chart** of real data (written as Vega-Lite, optionally interactive). Both are baked at authoring time —
+`card bake` needs the optional extra (`pip install 'repo-code-atlas[media]'`) — and only the result travels: a sprite
+sheet with per-frame captions, or an SVG plus a compiled Vega spec. `apply` copies those baked assets next to the card,
+and `build` inlines them, so the reader still gets one page with no network and no scripts of its own. Recipes and the
+size budget are in the [explainer skill](extensions/atlas-explainer/skill/explain/references/media.md).
 
 Select an anchored node and the detail panel lists its cards under **Explanations** (a file also lists the cards on its
 symbols, a symbol the cards on its class). A card opens in a reading layer: a sandboxed iframe with no network access whose

@@ -153,6 +153,11 @@ def snapshot(repo: Path) -> dict[str, str]:
             for f in (d / sub).glob(pattern):
                 if f.is_file():
                     out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
+    # Baked media manifests are small reviewable text, so a revert can restore them; the sprite sheets are binary
+    # and are left in place (a reverted card either keeps its sheet or is skipped by lint as unbaked).
+    for f in (d / "explainers").glob("*/media/*.json") if (d / "explainers").exists() else []:
+        if f.is_file():
+            out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
     return out
 
 

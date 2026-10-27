@@ -30,6 +30,14 @@ dependencies = [
     "typer>=0.27.3",
 ]
 
+[project.optional-dependencies]
+# `codeatlas card bake`: frame sheets for animations, Vega-Lite → SVG/Vega for charts.
+media = [
+    "pillow>=10",
+    "vl-convert-python>=1.7",
+    "imageio[ffmpeg]>=2.34",
+]
+
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"

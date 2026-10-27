@@ -137,6 +137,22 @@ card_app = typer.Typer(help="Explainer cards: visual answers to a reader's quest
 app.add_typer(card_app, name="card")
 
 
+@card_app.command("bake")
+def card_bake(path: Path = typer.Argument(..., help="Card directory (card.yaml + index.html + media/)."),
+              only: list[str] = typer.Option(None, "--only", help="Bake just this asset (repeatable).")):
+    """Render the card's animation frames and Vega-Lite charts into media/ (needs `code-atlas[media]`)."""
+    from .explainer_kit.media import BakeError, bake_card
+    try:
+        report = bake_card(path.resolve(), only=set(only) if only else None)
+    except BakeError as e:
+        emit({"ok": False, "errors": [str(e)]})
+        raise typer.Exit(1)
+    if only and not report["media"]:
+        emit({"ok": False, "errors": [f"this card declares no media named {', '.join(sorted(only))}"]})
+        raise typer.Exit(1)
+    emit(report)
+
+
 @card_app.command("validate")
 def card_validate(path: Path = typer.Argument(..., help="Card directory (card.yaml + index.html)."), repo: Path = RepoOpt):
     """Dry-run a card: lint its files and check every anchor against the index."""

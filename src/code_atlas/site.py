@@ -22,7 +22,7 @@ from .graphdata import file_of, load_index
 from .layout import align_translation, layout
 from .index import cache_dir
 from .semantic import store
-from .explainer_kit.pack import lint_card, pack_html
+from .explainer_kit.pack import inline_media, lint_card, load_media, media_refs, pack_html
 from .semantic.agenda import staleness
 from .semantic.explainers import card_status, cards_dir, load_cards
 from .semantic.tours import tour_status
@@ -275,7 +275,12 @@ def _explainers(repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> t
         if problems:
             skipped[cid] = problems[:5]
             continue
-        pages[cid] = pack_html((d / "index.html").read_text("utf-8"), c)
+        html = (d / "index.html").read_text("utf-8")
+        manifests, errors = load_media(d)
+        if errors:
+            skipped[cid] = errors[:5]
+            continue
+        pages[cid] = pack_html(html, c, inline_media(d, manifests, media_refs(html)))
         listed.append({"id": cid, "title": c["title"], "summary": c["summary"], "questions": c["questions"],
                        "anchors": c["anchors"], "tags": c.get("tags", []), "language": c.get("language"),
                        "at": c.get("at"), **({"state": state[cid]["state"], "stale_nodes": state[cid]["nodes"]}

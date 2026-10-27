@@ -101,6 +101,35 @@ at: 2026-10-26T15:30:12
 - **卡片里的代码引用是链接而不是复制。** `ex-code ref` 在构建时从索引取源码快照并带上哈希，与 anchor 同样参与过期判断；
   点"在地图中打开"，卡片通过 `postMessage` 让外层地图飞到对应节点。
 
+## 5.1 媒体：讲解动画与数据图表
+
+v1 的词汇只覆盖文字与静态表格，有两类问题仍答不了：**顺序是什么**（动画）和**多少、和什么比**（图表）。
+
+**实现时改为：不把 Motion Canvas / Vega-Lite / Manim 带进阅读层。** 阅读层是无网络、无自定义脚本的沙箱，把 500 KB 的
+Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片要小"的初衷。因此这三件工具只出现在**写作期**：
+
+| 写作工具 | 何时运行 | 进入卡片的东西 |
+|---|---|---|
+| Motion Canvas（MIT）、Manim（MIT），或任何能输出静帧／视频的工具 | `codeatlas card bake` | 雪碧图 `media/<name>.webp` + 帧栅格、逐帧字幕 `media/<name>.json` |
+| Vega-Lite（BSD-3） | `codeatlas card bake` | 每主题一份内联 SVG；声明 `interactive` 时再加编译后的 Vega spec |
+
+卡片用 `<ex-anim src="atlas-media:flow">`、`<ex-chart src="atlas-media:throughput">` 引用它们；`pack` 把 manifest 与雪碧图
+（data URI）注入页面的 `#atlas-media-registry`，阅读层不需要知道媒体存在。`card apply` 只复制烘焙产物到
+`.codemap/explainers/<id>/media/`，不复制源工程（否则会把带 `node_modules` 的 Motion Canvas 工程提交进被映射的仓库）。
+
+三条与既有安全模型对齐的取舍：
+
+- **没有 `<video>`。** 动画是画在 canvas 上的帧序列：可暂停、可拖拽、逐帧看字幕，`prefers-reduced-motion` 下不自动播放；
+  Manim 的 mp4/webm 在 `bake` 时解码成帧。
+- **交互图表不破坏 CSP。** Vega 默认用 `new Function` 编译表达式，需要 `'unsafe-eval'`；这里改用
+  `vega.parse(spec, null, {ast: true})` 加 `vega-interpreter`，表达式走解释器，CSP 仍是 `script-src 'unsafe-inline'`。
+  运行时（BSD-3）在套件里只存一份，构建时只内联进声明了 `interactive` 的卡片。
+- **两个体积预算。** 页面仍是 200 KB；烘焙媒体单独 2 MB（雪碧图 20–120 KB、静态图 25–60 KB、交互图约 550 KB）。
+
+媒体沿用"真实数据"规则：`ex-anim` / `ex-chart` 与 `ex-table` 一样必须声明 `source`，`real` 还需要 `origin`。`bake`
+把每个输入文件的哈希写进 manifest，`lint` 发现源文件在烘焙后变动就报 stale；源文件已不在时不算 stale（`apply`
+只带烘焙产物）。
+
 ## 6. 查看器怎样接收卡片
 
 接收端对卡片保持"不透明"：只认 `card.yaml` 和 `index.html`，不解析正文。这样套件迭代不会逼着查看器改。
@@ -185,6 +214,7 @@ skill 要求 agent 按这个顺序工作：
 | P1 | Code Atlas 接收端：存储、`card validate/apply`、`build` 汇总、详情面板分组、沙箱阅读层 | 手写的卡片挂在 `meshvl` 的某文件上，点开能读，改代码后出现过期标记 |
 | P2 | `explain` skill；用它在 `meshvl` 上真实回答那七个问题，产出 §9 那张卡 | 人工按 §9 标准验收 |
 | P3 | 笔记本入口与搜索；`agenda` 的"热点"提示；`ex-branch`、`ex-term`、`ex-code`；导览步骤可链接卡片 | 在两个以上仓库上跑过 |
+| P4 | 烘焙媒体：`ex-anim`（Motion Canvas / Manim 帧序列）、`ex-chart`（Vega-Lite，可选交互）、`card bake`、apply/build 携带媒体 | 示例卡在无网络沙箱里播放动画并响应主题切换 |
 
 ## 11. 风险与待决
 

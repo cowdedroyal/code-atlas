@@ -78,15 +78,17 @@ ex-table > table { border: 0; margin: 0; }
 ex-table > table :is(th, td) { border-left: 0; border-right: 0; }
 ex-table > table tr:last-child td { border-bottom: 0; }
 ex-table .ex-scroll { overflow-x: auto; }
-ex-table .ex-badge {
+ex-table .ex-badge, ex-chart .ex-badge, ex-anim .ex-badge {
   display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: baseline;
   padding: .3rem .7rem; font-size: .78rem; line-height: 1.5; border-bottom: 1px solid var(--ex-line);
 }
-ex-table .ex-badge b { font-weight: 650; }
-ex-table .ex-badge span { color: var(--ex-muted); }
-ex-table[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
-ex-table[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
-ex-table:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-table .ex-badge b, ex-chart .ex-badge b, ex-anim .ex-badge b { font-weight: 650; }
+ex-table .ex-badge span, ex-chart .ex-badge span, ex-anim .ex-badge span { color: var(--ex-muted); }
+ex-table[source="real"] .ex-badge, ex-chart[source="real"] .ex-badge, ex-anim[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
+ex-table[source="illustrative"] .ex-badge, ex-chart[source="illustrative"] .ex-badge, ex-anim[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
+ex-table:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-chart:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-anim:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
 ex-table .ex-cap { padding: .35rem .7rem; font-size: .8rem; color: var(--ex-muted); border-top: 1px solid var(--ex-line); }
 
 /* ---- <ex-flow> / <ex-stage title tag> : one thing travelling through stages ---- */
@@ -139,3 +141,53 @@ ex-before pre, ex-after pre { margin: 0; border-radius: 0; white-space: pre-wrap
 ex-before del, ex-after ins { text-decoration: none; border-radius: 3px; padding: 0 1px; }
 ex-before del { background: var(--ex-del-bg); color: var(--ex-del); }
 ex-after ins { background: var(--ex-add-bg); color: var(--ex-add); }
+
+/* ---- <ex-anim src="atlas-media:…"> : a baked frame animation ------------------ */
+ex-anim { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-anim .ex-badge, ex-chart .ex-badge { border-bottom: 1px solid var(--ex-line); }
+ex-anim figure, ex-chart figure { margin: 0; }
+ex-anim .ex-anim-view {
+  position: relative; width: 100%; background: var(--ex-surface); overflow: hidden;
+  border-bottom: 1px solid var(--ex-line);
+}
+ex-anim .ex-anim-view canvas { display: block; width: 100%; height: auto; cursor: pointer; }
+ex-anim .ex-anim-bar { display: flex; align-items: center; gap: .6rem; padding: .35rem .6rem; background: var(--ex-surface); }
+ex-anim .ex-play {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none;
+  min-width: 2rem; height: 1.7rem; padding: 0 .45rem; border-radius: 5px; border: 1px solid var(--ex-line);
+  background: var(--ex-bg); color: var(--ex-fg); font: 600 .8rem/1.6rem var(--ex-sans); text-align: center;
+}
+ex-anim .ex-play:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+ex-anim .ex-play:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+ex-anim .ex-scrub { flex: 1 1 auto; min-width: 4rem; accent-color: var(--ex-accent); margin: 0; }
+ex-anim .ex-count {
+  flex: none; font: .74rem var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums;
+  min-width: 4.5rem; text-align: right;
+}
+ex-anim .ex-cap, ex-chart .ex-cap {
+  padding: .4rem .7rem .5rem; font-size: .8rem; line-height: 1.55; color: var(--ex-muted);
+  border-top: 1px solid var(--ex-line); background: var(--ex-bg);
+}
+ex-anim .ex-cap:empty, ex-chart .ex-cap:empty { display: none; }
+ex-anim .ex-missing, ex-chart .ex-missing { margin: 0; padding: .7rem; font-size: .85rem; color: var(--ex-del); background: var(--ex-del-bg); }
+
+/* ---- <ex-chart src="atlas-media:…"> : a baked Vega-Lite chart --------------- */
+ex-chart { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-chart .ex-chart-body { position: relative; padding: .5rem .6rem .35rem; background: var(--ex-bg); }
+ex-chart .ex-chart-canvas { position: relative; width: 100%; min-height: 2rem; }
+ex-chart svg { display: block; width: 100%; height: auto; max-width: 100%; }
+ex-chart .ex-chart-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) ex-chart .ex-chart-light { display: none; }
+  :root:not([data-theme="light"]) ex-chart .ex-chart-dark { display: block; }
+}
+:root[data-theme="dark"] ex-chart .ex-chart-light { display: none; }
+:root[data-theme="dark"] ex-chart .ex-chart-dark { display: block; }
+ex-chart .ex-tip {
+  position: absolute; z-index: 3; max-width: 16rem; pointer-events: none;
+  padding: .35rem .5rem; border: 1px solid var(--ex-line); border-radius: 6px;
+  background: var(--ex-bg); color: var(--ex-fg); box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  font: .74rem/1.45 var(--ex-mono);
+}
+ex-chart .ex-tip-row { display: flex; gap: .5rem; justify-content: space-between; white-space: nowrap; }
+ex-chart .ex-tip-row b { font-weight: 650; color: var(--ex-muted); }

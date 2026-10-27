@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import subprocess
@@ -177,6 +178,54 @@ def test_cli_card_commands(tmp_path):
     assert r.exit_code == 1
     assert run.invoke(app, ["status", "-r", str(repo)]).exit_code == 0
     assert run.invoke(app, ["card", "delete", "user-flow", "-r", str(repo)]).exit_code == 0
+
+
+MEDIA_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="atlas-kit:1.css"></head>
+<body><h1>How a user is made</h1>
+<ex-anim src="atlas-media:flow" source="illustrative" caption="a dot moving"></ex-anim>
+<script src="atlas-kit:1.js"></script></body></html>
+"""
+
+# a real 8×8 WebP: the tests never bake with Pillow, they only check that a baked asset is carried along
+WEBP = base64.b64decode("UklGRjgAAABXRUJQVlA4ICwAAADQAQCdASoIAAgAAUAmJaACdLoB+AADsAD+71Ev/iGej1Lw//lKvBY3N8AAAA==")
+
+
+def _baked_anim(card: Path, sheet: bytes = WEBP) -> None:
+    media = card / "media"
+    media.mkdir(exist_ok=True)
+    (media / "flow.json").write_text(json.dumps({
+        "kind": "anim", "id": "flow", "sheet": "flow.webp", "width": 8, "height": 8, "columns": 1,
+        "frames": 1, "fps": 4, "ms": 250, "captions": [], "sources": {}}), "utf-8")
+    (media / "flow.webp").write_bytes(sheet)
+
+
+def test_apply_carries_baked_media_and_build_inlines_it(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="c1")["ok"]
+    assert (cards_dir(repo) / "user-flow" / "media" / "flow.webp").read_bytes() == WEBP
+    page = build_data(repo)["cards"]["user-flow"]
+    assert "atlas-media-registry" in page and "data:image/webp;base64," in page
+    assert apply_card(repo, d, run="c2")["unchanged"]          # same page, same sheet
+    _baked_anim(d, WEBP + b"\0")                               # re-baked: a new sheet is a change
+    assert "unchanged" not in apply_card(repo, d, run="c3")
+    assert delete_card(repo, "user-flow", run="c4")["ok"]
+    assert not (cards_dir(repo) / "user-flow").exists()        # media included, not just the two files
+
+
+def test_a_card_whose_media_is_not_baked_cannot_be_applied(tmp_path):
+    repo = setup(tmp_path)
+    report = validate_card(repo, draft(tmp_path, page=MEDIA_PAGE))
+    assert not report["ok"] and any("not baked" in e for e in report["errors"])
+
+
+def test_cli_card_bake_explains_that_there_is_nothing_to_bake(tmp_path):
+    d = draft(tmp_path)
+    r = CliRunner().invoke(app, ["card", "bake", str(d)])
+    assert r.exit_code == 1
+    assert "nothing to bake" in r.output
 
 
 def test_vendored_kit_matches_atlas_explainer_when_available():

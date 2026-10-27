@@ -1,18 +1,23 @@
 """Explainer cards: visual answers to a reader's questions, hung on the nodes they explain.
 
-    .codemap/explainers/<id>/card.yaml    manifest (format and rules: explainer_kit/card.schema.json)
-    .codemap/explainers/<id>/index.html   the page, written with the component kit; packed at build time
+    .codemap/explainers/<id>/card.yaml        manifest (format and rules: explainer_kit/card.schema.json)
+    .codemap/explainers/<id>/index.html       the page, written with the component kit; packed at build time
+    .codemap/explainers/<id>/media/<name>.json, <name>.webp
+                                              baked animation/chart assets the page names with `atlas-media:<name>`
 
 `apply` is the only writer: it validates the card against the current index, records a content hash for every
 anchor (so later code edits make the card stale, like notes and relations), logs the run and keeps a snapshot
 for `revert`. The page is stored as written, with the kit referenced by placeholder, so diffs stay small;
-`build` inlines the kit and the Content-Security-Policy.
+`build` inlines the kit, the media and the Content-Security-Policy. Only the baked media is copied: the authored
+sources (frames, a Motion Canvas project, a Vega-Lite spec) stay where the author keeps them, which is why a
+missing source is not treated as stale.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -108,6 +113,33 @@ def _write_card(dst: Path, manifest: dict, html: str) -> None:
     (dst / "index.html").write_text(html, encoding="utf-8", newline="\n")
 
 
+def baked_media(card: Path) -> dict[str, bytes]:
+    """The assets a card carries: baked manifests and sprite sheets, never the authored sources.
+
+    A Vega-Lite spec (`*.vl.json`) and the frames a sheet was made from are inputs to `bake`, not part of the card:
+    copying them would mean committing a Motion Canvas project (with `node_modules`) to the mapped repository.
+    """
+    d = card / "media"
+    if not d.is_dir():
+        return {}
+    return {p.name: p.read_bytes() for p in sorted(d.iterdir())
+            if p.is_file() and (p.suffix == ".webp" or (p.suffix == ".json" and not p.name.endswith(".vl.json")))}
+
+
+def _write_media(dst: Path, files: dict[str, bytes]) -> None:
+    d = dst / "media"
+    if not files:
+        if d.is_dir():
+            shutil.rmtree(d)
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    for name, data in files.items():
+        (d / name).write_bytes(data)
+    for p in d.iterdir():                      # a re-applied card must not keep a sheet it no longer uses
+        if p.is_file() and p.name not in files:
+            p.unlink()
+
+
 def _record(repo: Path, run: str, at: str, before: dict, change: dict, intent: str) -> None:
     runs = cache_dir(repo) / "runs"
     runs.mkdir(parents=True, exist_ok=True)
@@ -128,9 +160,11 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
     anchors = [_canonical(idx, a) for a in manifest["anchors"]]
     manifest["anchors"] = anchors
     hashes = {a: _node_hash(idx, a) for a in anchors if not a.startswith(REGION_PREFIX)}
+    media = baked_media(src)
     if old:
         old_html = (cards_dir(repo) / cid / "index.html").read_text("utf-8")
-        same = all(old.get(k) == manifest.get(k) for k in CONTENT_KEYS) and old_html == html
+        same = (all(old.get(k) == manifest.get(k) for k in CONTENT_KEYS) and old_html == html
+                and baked_media(cards_dir(repo) / cid) == media)
         if same:  # identical content keeps its original anchors and run, like notes
             return {**report, "unchanged": True, "run": old.get("run")}
     run = run or time.strftime("run-%Y%m%d-%H%M%S")
@@ -138,6 +172,7 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
     manifest.update({"anchor_hashes": hashes, "run": run, "at": at})
     before = store.snapshot(repo)
     _write_card(cards_dir(repo) / cid, manifest, html)
+    _write_media(cards_dir(repo) / cid, media)
     _record(repo, run, at, before, {"cards": 1}, "card")
     return {**report, "run": run}
 
@@ -170,9 +205,7 @@ def delete_card(repo: Path, cid: str, run: str | None = None) -> dict:
     run = run or time.strftime("run-%Y%m%d-%H%M%S")
     at = time.strftime("%Y-%m-%dT%H:%M:%S")
     before = store.snapshot(repo)
-    for f in (cards_dir(repo) / cid).glob("*"):
-        f.unlink()
-    (cards_dir(repo) / cid).rmdir()
+    shutil.rmtree(cards_dir(repo) / cid)
     _record(repo, run, at, before, {"cards": -1}, "card-delete")
     return {"ok": True, "run": run}
 
