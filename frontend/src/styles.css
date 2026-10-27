@@ -23,6 +23,10 @@
 :root[data-theme="dark"] .code .hljs-comment { color: #a4b2a8; }
 html, body, #root { margin: 0; height: 100%; background: var(--surface); color: var(--text-primary); font: 13px/1.45 var(--font); }
 .app { position: fixed; inset: 0; overflow: hidden; }
+/* deck.gl's wrapper puts the widget root after the full-height canvas: a zero-height block at the
+   bottom of the page. The built-in tooltip measures against it, so it lands a page-height above the
+   cursor. Give the widget root the map's own box; it stays out of the way with pointer-events: none. */
+.deck-widgets-root { position: absolute; inset: 0; pointer-events: none; }
 .splash { display: grid; place-items: center; height: 100%; color: var(--text-secondary); }
 .mono { font-family: var(--mono); font-size: 12px; }
 .muted { color: var(--text-muted); }
