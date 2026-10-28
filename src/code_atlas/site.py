@@ -271,16 +271,20 @@ def _explainers(repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> t
     listed, pages, skipped = [], {}, {}
     for cid in sorted(cards):
         c, d = cards[cid], cards_dir(repo) / cid
-        problems = lint_card(d)
-        if problems:
-            skipped[cid] = problems[:5]
+        try:
+            problems = lint_card(d)
+            if problems:
+                skipped[cid] = problems[:5]
+                continue
+            html = (d / "index.html").read_text("utf-8")
+            manifests, errors = load_media(d)
+            if errors:
+                skipped[cid] = errors[:5]
+                continue
+            pages[cid] = pack_html(html, c, inline_media(d, manifests, media_refs(html)))
+        except (ValueError, OSError) as e:
+            skipped[cid] = [str(e)]
             continue
-        html = (d / "index.html").read_text("utf-8")
-        manifests, errors = load_media(d)
-        if errors:
-            skipped[cid] = errors[:5]
-            continue
-        pages[cid] = pack_html(html, c, inline_media(d, manifests, media_refs(html)))
         listed.append({"id": cid, "title": c["title"], "summary": c["summary"], "questions": c["questions"],
                        "anchors": c["anchors"], "tags": c.get("tags", []), "language": c.get("language"),
                        "at": c.get("at"), **({"state": state[cid]["state"], "stale_nodes": state[cid]["nodes"]}

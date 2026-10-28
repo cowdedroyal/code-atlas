@@ -24,7 +24,9 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import math
 import re
+import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -42,6 +44,7 @@ MEDIA_SCHEME = "atlas-media:"
 MEDIA_TAGS = {"ex-anim": "anim", "ex-chart": "chart"}
 VENDOR = PKG / MEDIA / "vendor"
 RUNTIME = [VENDOR / "vega.min.js", VENDOR / "vega-interpreter.min.js"]
+LICENSES = [VENDOR / "LICENSE-vega.txt", VENDOR / "LICENSE-vega-interpreter.txt"]
 CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
        "img-src data:; font-src data:; base-uri 'none'; form-action 'none'")
 CSS_PLACEHOLDER = f"atlas-kit:{KIT_VERSION}.css"
@@ -125,12 +128,12 @@ class _Scan(HTMLParser):
                 self.err(f"<{tag}> needs a caption: it is the reader's only text when the picture fails to load")
         if "style" in a and CSS_EXTERNAL.search(a["style"]):
             self.err("style attribute loads an external resource")
-        if tag == "ex-table":
+        if tag in {"ex-table", *MEDIA_TAGS}:
             src = a.get("source")
             if src not in SOURCES:
-                self.err('<ex-table> needs source="real" or source="illustrative"')
+                self.err(f'<{tag}> needs source="real" or source="illustrative"')
             elif src == "real" and not a.get("origin"):
-                self.err('<ex-table source="real"> needs origin="…" saying where the data was read from (file, command or log)')
+                self.err(f'<{tag} source="real"> needs origin="…" saying where the data was read from (file, command or log)')
         if tag == "ex-stage" and not a.get("title"):
             self.err("<ex-stage> needs a title")
 
@@ -162,6 +165,116 @@ def load_manifest(card: Path) -> dict:
     return yaml.safe_load((card / "card.yaml").read_text("utf-8")) or {}
 
 
+def media_path(card: Path, name: str) -> Path:
+    """Resolve a flat media filename without reading outside the card, including through symlinks."""
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+        raise ValueError("media filename must be a basename inside media/")
+    base = card.resolve() / MEDIA
+    path = base / name
+    if not base.resolve().is_relative_to(card.resolve()) or not path.resolve().is_relative_to(base.resolve()):
+        raise ValueError(f"media/{name}: path leaves the card's media directory")
+    return path
+
+
+def sheet_path(card: Path, m: dict) -> Path:
+    sheet = media_path(card, m.get("sheet"))
+    if sheet.suffix.lower() not in _MIME:
+        raise ValueError("animation sheet must be a raster image (webp/png/jpeg/gif)")
+    if not sheet.is_file():
+        raise ValueError(f"media/{m['id']}.json names `{m.get('sheet')}`, which is missing")
+    return sheet
+
+
+SVG_TAGS = set("svg g defs path rect circle ellipse line polyline polygon text tspan title desc clipPath "
+               "linearGradient radialGradient stop image use a".split())
+SVG_NS = "http://www.w3.org/2000/svg"
+SAFE_URL = re.compile(r"#[A-Za-z0-9_.:-]+|data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+", re.I)
+
+
+def _svg_errors(svg: str) -> list[str]:
+    """Accept only passive SVG drawing elements and local references; never trust a baked JSON file."""
+    if "<!" in svg:
+        return ["SVG declarations/entities are not allowed"]
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError:
+        return ["invalid SVG"]
+    if root.tag not in ("svg", f"{{{SVG_NS}}}svg"):
+        return ["SVG root must be <svg>"]
+    for node in root.iter():
+        tag = node.tag.removeprefix(f"{{{SVG_NS}}}")
+        if tag not in SVG_TAGS:
+            return [f"SVG element <{tag}> is not allowed"]
+        for attr, value in node.attrib.items():
+            key = attr.rsplit("}", 1)[-1].lower()
+            if key.startswith("on") or key in {"style", "base", "src", "srcset"}:
+                return [f"SVG attribute `{key}` is not allowed"]
+            if key == "href" and not SAFE_URL.fullmatch(value):
+                return ["SVG href must be a fragment or inline raster image"]
+            if "url(" in value.lower() and not re.fullmatch(r"url\(#[A-Za-z0-9_.:-]+\)", value):
+                return ["SVG url() must refer to a local fragment"]
+    return []
+
+
+def _vega_errors(value) -> list[str]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "values":
+                continue  # Inline rows may have ordinary fields called url/href; they are data, not loaders.
+            if key in {"url", "href"} and (not isinstance(item, str) or not SAFE_URL.fullmatch(item)):
+                return ["Vega URL must be a fragment or inline raster image; bake all data inline"]
+            errors = _vega_errors(item)
+            if errors:
+                return errors
+    elif isinstance(value, list):
+        for item in value:
+            errors = _vega_errors(item)
+            if errors:
+                return errors
+    return []
+
+
+def _media_errors(m: dict) -> list[str]:
+    if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart"):
+        return ["not a baked asset (`kind` must be `anim` or `chart`); run `atlas-explainer bake`"]
+    sources = m.get("sources", {})
+    if not isinstance(sources, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in sources.items()):
+        return ["sources must map card-relative filenames to hashes"]
+    if m["kind"] == "anim":
+        for key in ("width", "height", "columns", "frames"):
+            if type(m.get(key)) is not int or m[key] <= 0:
+                return [f"animation {key} must be a positive integer"]
+        if not isinstance(m.get("sheet"), str):
+            return ["animation needs a sheet filename"]
+        for key in ("fps", "ms"):
+            if type(m.get(key)) not in (int, float) or not math.isfinite(m[key]) or m[key] <= 0:
+                return [f"animation {key} must be a positive finite number"]
+        if not isinstance(m.get("captions", []), list) or any(not isinstance(c, str) for c in m.get("captions", [])):
+            return ["animation captions must be strings"]
+        durations = m.get("durations")
+        if durations is not None and (not isinstance(durations, list) or len(durations) != m["frames"] or any(
+                type(t) not in (int, float) or not math.isfinite(t) or t <= 0 for t in durations)):
+            return ["animation durations must contain one positive millisecond duration per frame"]
+    else:
+        svg = m.get("svg")
+        if not isinstance(svg, dict) or set(svg) != {"light", "dark"} or any(not isinstance(s, str) for s in svg.values()):
+            return ["chart needs SVG strings for light and dark themes"]
+        for s in svg.values():
+            errors = _svg_errors(s)
+            if errors:
+                return errors
+        vega = m.get("vega")
+        if vega is not None:
+            if not isinstance(vega, dict) or set(vega) != {"light", "dark"} or any(not isinstance(v, dict) for v in vega.values()):
+                return ["chart Vega specs must map light/dark to objects"]
+            errors = _vega_errors(vega)
+            if errors:
+                return errors
+        if not isinstance(m.get("tooltip", []), list) or any(not isinstance(f, str) for f in m.get("tooltip", [])):
+            return ["chart tooltip fields must be strings"]
+    return []
+
+
 def load_media(card: Path) -> tuple[dict[str, dict], list[str]]:
     """Baked manifests in `media/`, by name, plus whatever is wrong with the files themselves."""
     out: dict[str, dict] = {}
@@ -169,27 +282,43 @@ def load_media(card: Path) -> tuple[dict[str, dict], list[str]]:
     d = card / MEDIA
     if not d.is_dir():
         return out, errors
-    for p in sorted(d.glob("*.json")):
+    page = card / "index.html"
+    names = set(media_refs(page.read_text("utf-8"))) if page.is_file() else set()
+    # Only referenced names are required manifests. Other JSON files may be authored chart data.
+    for name in sorted(names):
+        try:
+            p = media_path(card, name + ".json")
+        except ValueError as e:
+            errors.append(str(e))
+            continue
         if p.name.endswith(".vl.json"):
             continue                     # an authored Vega-Lite spec, not a baked asset
-        name = p.name[: -len(".json")]
         try:
             m = json.loads(p.read_text("utf-8"))
+        except OSError as e:
+            errors.append(f"media/{p.name}: not baked or unreadable ({e})")
+            continue
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             errors.append(f"media/{p.name}: not valid JSON ({e})")
             continue
-        if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart"):
-            errors.append(f"media/{p.name}: not a baked asset (`kind` must be `anim` or `chart`); run `atlas-explainer bake`")
+        invalid = _media_errors(m)
+        if invalid:
+            errors.extend(f"media/{p.name}: {e}" for e in invalid)
             continue
         if m.get("id") != name:
             errors.append(f"media/{p.name}: id `{m.get('id')}` must equal the file name `{name}`")
             continue
+        if m["kind"] == "anim":
+            try:
+                sheet_path(card, m)
+            except (ValueError, OSError) as e:
+                errors.append(f"media/{p.name}: {e}")
+                continue
         out[name] = m
     return out, errors
 
 
-_MIME = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-         ".gif": "image/gif", ".svg": "image/svg+xml"}
+_MIME = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif"}
 
 
 def _data_uri(path: Path) -> str:
@@ -203,9 +332,7 @@ def inline_media(card: Path, media: dict[str, dict], names) -> dict[str, dict]:
     for name in sorted(set(names)):
         m = copy.deepcopy(media[name])
         if m["kind"] == "anim":
-            sheet = card / MEDIA / str(m.get("sheet") or "")
-            if not sheet.is_file():
-                raise ValueError(f"media/{name}.json names `{m.get('sheet')}`, which is missing")
+            sheet = sheet_path(card, m)
             m["sheet"] = _data_uri(sheet)
         out[name] = m
     return out
@@ -214,12 +341,9 @@ def inline_media(card: Path, media: dict[str, dict], names) -> dict[str, dict]:
 def media_size(card: Path, m: dict) -> int:
     """What the manifest costs once inlined: sprite sheet, or the SVG/Vega spec and the runtime for charts."""
     if m["kind"] == "anim":
-        sheet = card / MEDIA / str(m.get("sheet") or "")
-        return sheet.stat().st_size if sheet.is_file() else 0
-    total = sum(len(s) for s in (m.get("svg") or {}).values()) + len(json.dumps(m.get("vega") or {}))
-    if m.get("vega"):
-        total += sum(p.stat().st_size for p in RUNTIME if p.is_file())
-    return total
+        sheet = sheet_path(card, m)
+        return len(json.dumps(m).encode("utf-8")) + 4 * ((sheet.stat().st_size + 2) // 3)
+    return len(json.dumps(m, ensure_ascii=False).encode("utf-8"))
 
 
 def lint_media(card: Path, scan: _Scan) -> list[str]:
@@ -237,15 +361,17 @@ def lint_media(card: Path, scan: _Scan) -> list[str]:
             problems.append(f"index.html:{line}: <{tag}> needs a `{MEDIA_TAGS[tag]}` asset but media/{name}.json is a "
                             f"`{m['kind']}`")
             continue
-        if m["kind"] == "chart" and m.get("vega") and not all(p.is_file() for p in RUNTIME):
+        if m["kind"] == "chart" and m.get("vega") and not all(p.is_file() for p in RUNTIME + LICENSES):
             problems.append("media/: the Vega runtime is missing from the tool "
-                            f"({', '.join(str(p.name) for p in RUNTIME)}); reinstall atlas-explainer")
+                            f"({', '.join(str(p.name) for p in RUNTIME + LICENSES)}); reinstall atlas-explainer")
         changed = _stale(card, m)
         if changed:
             problems.append(f"media/{name}.json: stale — {', '.join(changed[:3])} changed after the last bake; "
                             "run `atlas-explainer bake`")
     used = {name for _, _, name in scan.media if name in media}
     size = sum(media_size(card, media[n]) for n in used)
+    if any(media[n].get("vega") for n in used):
+        size += sum(p.stat().st_size for p in RUNTIME + LICENSES if p.is_file())
     if size > MAX_MEDIA_BYTES:
         problems.append(f"inlined media is {size:,} bytes; the limit is {MAX_MEDIA_BYTES:,} "
                         "(fewer frames, a smaller sheet width, or a static chart instead of an interactive one)")
@@ -304,8 +430,14 @@ def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None) -
         media = {}
     injected = ""
     if media:
+        for name, m in media.items():
+            invalid = _media_errors(m)
+            if invalid:
+                raise ValueError(f"media/{name}: {'; '.join(invalid)}")
         if any(m.get("vega") for m in media.values()):
-            injected += "<script>\n" + "\n".join(p.read_text("utf-8") for p in RUNTIME if p.is_file()) + "\n</script>\n"
+            notices = "\n\n".join(p.read_text("utf-8") for p in LICENSES)
+            injected += "<!-- Third-party licenses\n" + notices.replace("--", "&#45;&#45;") + "\n-->\n"
+            injected += "<script>\n" + "\n".join(p.read_text("utf-8") for p in RUNTIME) + "\n</script>\n"
         payload = json.dumps(media, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
         injected += f'<script type="application/json" id="atlas-media-registry">{payload}</script>\n'
     html = re.sub(r"<link\b[^>]*" + re.escape(CSS_PLACEHOLDER) + r"[^>]*>", lambda _: f"<style>\n{css}</style>", html)

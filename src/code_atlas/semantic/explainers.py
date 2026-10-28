@@ -119,11 +119,18 @@ def baked_media(card: Path) -> dict[str, bytes]:
     A Vega-Lite spec (`*.vl.json`) and the frames a sheet was made from are inputs to `bake`, not part of the card:
     copying them would mean committing a Motion Canvas project (with `node_modules`) to the mapped repository.
     """
-    d = card / "media"
-    if not d.is_dir():
-        return {}
-    return {p.name: p.read_bytes() for p in sorted(d.iterdir())
-            if p.is_file() and (p.suffix == ".webp" or (p.suffix == ".json" and not p.name.endswith(".vl.json")))}
+    from ..explainer_kit.pack import load_media, media_path, sheet_path
+    manifests, errors = load_media(card)
+    if errors:
+        raise ValueError("; ".join(errors))
+    files = {}
+    for name, manifest in manifests.items():
+        p = media_path(card, name + ".json")
+        files[p.name] = p.read_bytes()
+        if manifest["kind"] == "anim":
+            p = sheet_path(card, manifest)
+            files[p.name] = p.read_bytes()
+    return files
 
 
 def _write_media(dst: Path, files: dict[str, bytes]) -> None:
@@ -162,9 +169,13 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
     hashes = {a: _node_hash(idx, a) for a in anchors if not a.startswith(REGION_PREFIX)}
     media = baked_media(src)
     if old:
-        old_html = (cards_dir(repo) / cid / "index.html").read_text("utf-8")
+        try:
+            old_html = (cards_dir(repo) / cid / "index.html").read_text("utf-8")
+            old_media = baked_media(cards_dir(repo) / cid)
+        except (ValueError, OSError):
+            old_html, old_media = None, None  # A valid re-apply can repair a damaged stored card.
         same = (all(old.get(k) == manifest.get(k) for k in CONTENT_KEYS) and old_html == html
-                and baked_media(cards_dir(repo) / cid) == media)
+                and old_media == media)
         if same:  # identical content keeps its original anchors and run, like notes
             return {**report, "unchanged": True, "run": old.get("run")}
     run = run or time.strftime("run-%Y%m%d-%H%M%S")

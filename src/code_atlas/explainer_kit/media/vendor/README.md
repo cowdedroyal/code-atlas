@@ -10,7 +10,7 @@ These two files are that runtime, copied here once so that every build is offlin
 
 The interpreter is what makes Vega work under the card's Content-Security-Policy: Vega normally compiles its
 expressions with `new Function`, which `script-src 'unsafe-inline'` (deliberately) does not allow. With
-`vega.parse(spec, {ast: true})` plus `new vega.View(runtime, {expr: vegaInterpreter})`, the expressions are
+`vega.parse(spec, null, {ast: true})` plus `new vega.View(runtime, {expr: vegaInterpreter})`, the expressions are
 interpreted instead of compiled, so no `'unsafe-eval'` is needed.
 
 `vega-interpreter` ships as an ES module, which cannot be inlined as a plain `<script>`; the vendored file is its
@@ -22,5 +22,7 @@ printf "import { expressionInterpreter } from 'vega-interpreter';\nwindow.vegaIn
 npx esbuild interp-entry.js --bundle --format=iife --minify --outfile=vega-interpreter.min.js
 ```
 
-Update these files (and this table) together, and check `tests/test_media.py::test_interactive_chart_is_csp_safe`
-still passes: it packs a chart card and asserts the page has no `new Function` call in the card's own markup.
+Update these files, both license files and this table together. `pack` includes the BSD notices in standalone
+interactive card HTML; Code Atlas's sync script copies the notices alongside the runtime.
+Run `tests/test_media.py::test_interactive_chart_ships_the_runtime` and
+`tests/test_media.py::test_packed_interactive_chart_carries_bsd_notices`, plus the browser regression checks.

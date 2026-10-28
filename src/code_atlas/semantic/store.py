@@ -16,6 +16,7 @@ Everything is written in a stable order so that a change shows up as a small dif
 from __future__ import annotations
 
 import json
+import base64
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,8 +142,8 @@ def read_log(repo: Path) -> list[dict]:
     return _read_jsonl(root(repo) / "log.jsonl")
 
 
-def snapshot(repo: Path) -> dict[str, str]:
-    """All semantic files as text (for run revert)."""
+def snapshot(repo: Path) -> dict[str, str | dict]:
+    """All semantic files; binary card assets use an explicit base64 envelope in the JSON snapshot."""
     d = root(repo)
     out = {}
     for name in SEMANTIC_FILES:
@@ -153,15 +154,14 @@ def snapshot(repo: Path) -> dict[str, str]:
             for f in (d / sub).glob(pattern):
                 if f.is_file():
                     out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
-    # Baked media manifests are small reviewable text, so a revert can restore them; the sprite sheets are binary
-    # and are left in place (a reverted card either keeps its sheet or is skipped by lint as unbaked).
-    for f in (d / "explainers").glob("*/media/*.json") if (d / "explainers").exists() else []:
+    for f in (d / "explainers").glob("*/media/*") if (d / "explainers").exists() else []:
         if f.is_file():
-            out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
+            out[f.relative_to(d).as_posix()] = (f.read_text("utf-8") if f.suffix == ".json" else
+                {"encoding": "base64", "data": base64.b64encode(f.read_bytes()).decode("ascii")})
     return out
 
 
-def restore(repo: Path, files: dict[str, str]) -> None:
+def restore(repo: Path, files: dict[str, str | dict]) -> None:
     d = root(repo)
     current = snapshot(repo)
     for name in current:
@@ -171,8 +171,13 @@ def restore(repo: Path, files: dict[str, str]) -> None:
         if name == "log.jsonl":
             continue
         (d / name).parent.mkdir(parents=True, exist_ok=True)
-        (d / name).write_text(text, encoding="utf-8", newline="\n" if name.startswith("explainers/") else None)
+        if isinstance(text, dict):
+            if text.get("encoding") != "base64":
+                raise ValueError(f"unsupported snapshot encoding for {name}")
+            (d / name).write_bytes(base64.b64decode(text["data"], validate=True))
+        else:
+            (d / name).write_text(text, encoding="utf-8", newline="\n" if name.startswith("explainers/") else None)
     cards = d / "explainers"
-    for sub in cards.glob("*") if cards.exists() else []:  # a card directory emptied by the loop above
+    for sub in sorted(cards.rglob("*"), key=lambda p: len(p.parts), reverse=True) if cards.exists() else []:
         if sub.is_dir() and not any(sub.iterdir()):
             sub.rmdir()

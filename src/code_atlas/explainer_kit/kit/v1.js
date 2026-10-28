@@ -257,8 +257,8 @@
       if (!last) last = now;
       acc += now - last;
       last = now;
-      while (acc >= step) {
-        acc -= step;
+      while (acc >= (m.durations ? m.durations[frame] : step)) {
+        acc -= m.durations ? m.durations[frame] : step;
         if (frame + 1 >= m.frames && !loop) { frame = m.frames - 1; acc = 0; stop(); return; }
         frame = (frame + 1) % m.frames;
       }
@@ -267,6 +267,7 @@
     }
     function start() {
       if (playing) return;
+      if (!loop && frame + 1 >= m.frames) frame = 0;
       playing = true;
       last = 0;
       acc = 0;
@@ -274,7 +275,8 @@
       draw();
     }
     play.addEventListener("click", function () { if (playing) stop(); else start(); });
-    scrub.addEventListener("input", function () { stop(); setFrame(Number(scrub.value)); });
+    scrub.setAttribute("aria-label", t("frame"));
+    scrub.addEventListener("input", function () { var next = Number(scrub.value); stop(); setFrame(next); });
     view.addEventListener("click", function () { if (playing) stop(); else start(); });
     img.onload = function () { ready = true; draw(); };
     img.src = m.sheet;
@@ -313,7 +315,10 @@
     st.body.textContent = "";
     ["light", "dark"].forEach(function (theme) {
       var box = el("div", "ex-chart-svg ex-chart-" + theme);
-      box.innerHTML = (m.svg && m.svg[theme]) || "";
+      var picture = document.createElement("img");
+      picture.alt = node.getAttribute("caption") || "";
+      picture.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent((m.svg && m.svg[theme]) || "");
+      box.appendChild(picture);       // SVG stays in an inert image document, never parsed into the card DOM
       st.body.appendChild(box);
     });
     if (!forceStatic && node.hasAttribute("interactive") && m.vega && window.vega && window.vegaInterpreter) mountChart(node);

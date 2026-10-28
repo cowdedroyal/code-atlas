@@ -27,6 +27,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
+import re
+from bisect import bisect_right
 import shlex
 import subprocess
 import tempfile
@@ -37,6 +40,8 @@ import yaml
 
 MAX_FRAMES = 240              # longer animations are subsampled; a card is a gloss, not a film
 SHEET_MAX_WIDTH = 2048        # keeps the sheet inside what every browser will decode
+SHEET_MAX_HEIGHT = 16383      # WebP's hard per-dimension limit
+SHEET_MAX_PIXELS = 16_000_000 # bound decoded memory as well as encoded bytes
 SHEET_BUDGET = 900_000        # bytes; quality steps down until the sheet fits
 DEFAULT_FPS = 12
 DEFAULT_WIDTH = 560
@@ -148,7 +153,7 @@ def _frames_from_dir(card: Path, pattern: str) -> list[Path]:
     return frames
 
 
-def _frames_from_video(path: Path, tmp: Path) -> list[Path]:
+def _frames_from_video(path: Path, tmp: Path) -> tuple[list[Path], list[float]]:
     """Decode a video (Manim's output is one) into stills, without requiring ffmpeg on PATH."""
     try:
         import imageio.v3 as iio
@@ -156,13 +161,21 @@ def _frames_from_video(path: Path, tmp: Path) -> list[Path]:
     except ImportError as e:  # pragma: no cover - depends on the optional extra
         raise BakeError("reading a video needs the media extra: `uv sync --extra media`") from e
     try:
-        n = 0
+        meta = iio.immeta(path)
+        fps = float(meta.get("fps") or 0)
+        if path.suffix.lower() != ".gif" and (not math.isfinite(fps) or fps <= 0):
+            raise BakeError(f"{path.name}: video does not report a valid frame rate")
+        durations = []
         for i, frame in enumerate(iio.imiter(path)):
             Image.fromarray(frame).save(tmp / f"{i:05d}.png")
-            n += 1
-        if not n:
+            duration = (float(iio.immeta(path, index=i).get("duration", 100))
+                        if path.suffix.lower() == ".gif" else 1000 / fps)
+            if not math.isfinite(duration) or duration <= 0:
+                raise BakeError(f"{path.name}: invalid duration for frame {i}")
+            durations.append(duration)
+        if not durations:
             raise BakeError(f"{path.name} decoded to no frames")
-        return sorted(tmp.glob("*.png"))
+        return sorted(tmp.glob("*.png")), durations
     except BakeError:
         raise
     except Exception as e:  # imageio raises plugin-specific errors
@@ -186,23 +199,34 @@ def _sheet(frames: list[Path], width: int):
 
     first = Image.open(frames[0])
     w, h = first.size
+    first.close()
     if width and width != w:
         h = max(1, round(h * width / w))
         w = width
-    columns = max(1, min(len(frames), SHEET_MAX_WIDTH // max(w, 1)))
-    rows = (len(frames) + columns - 1) // columns
+    # Reducing JPEG/WebP quality cannot fix an oversized image. Shrink cells until the entire grid fits.
+    while True:
+        columns = max(1, min(len(frames), SHEET_MAX_WIDTH // max(w, 1)))
+        rows = (len(frames) + columns - 1) // columns
+        if columns * w <= SHEET_MAX_WIDTH and rows * h <= SHEET_MAX_HEIGHT and columns * w * rows * h <= SHEET_MAX_PIXELS:
+            break
+        w, h = max(1, int(w * .9)), max(1, int(h * .9))
     sheet = Image.new("RGBA", (columns * w, rows * h), (0, 0, 0, 0))
     for i, f in enumerate(frames):
-        im = Image.open(f).convert("RGBA")
+        with Image.open(f) as source:
+            im = source.convert("RGBA")
         if im.size != (w, h):
             im = im.resize((w, h), Image.LANCZOS)
         sheet.paste(im, ((i % columns) * w, (i // columns) * h))
+        im.close()
     data = b""
     for quality in (80, 65, 50, 40):
         import io
 
         buf = io.BytesIO()
-        sheet.save(buf, format="WEBP", quality=quality, method=6)
+        try:
+            sheet.save(buf, format="WEBP", quality=quality, method=6)
+        except (ValueError, OSError) as e:
+            raise BakeError(f"cannot encode animation sheet ({sheet.width}x{sheet.height}): {e}") from e
         data = buf.getvalue()
         if len(data) <= SHEET_BUDGET:
             break
@@ -217,6 +241,18 @@ def _subsample(frames: list[Path], fps: float) -> tuple[list[Path], float]:
     return picked, fps / step
 
 
+def _sample_video(frames: list[Path], durations: list[float], fps: float) -> tuple[list[Path], list[float]]:
+    """Sample by source time, retaining the complete clip duration at any target FPS or frame limit."""
+    total = sum(durations)
+    count = min(MAX_FRAMES, max(1, math.ceil(total * fps / 1000 - 1e-8)))
+    starts, at = [], 0.0
+    for duration in durations:
+        starts.append(at)
+        at += duration
+    picked = [frames[min(len(frames) - 1, bisect_right(starts, i * total / count) - 1)] for i in range(count)]
+    return picked, [total / count] * count
+
+
 def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
     """Sprite-sheet one animation: run its declared command, collect frames, write `media/<name>.*`."""
     cfg = cfg or {}
@@ -224,6 +260,9 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
         _run(card, cfg["run"])
     sources: list[Path] = []
     fps = float(cfg.get("fps") or DEFAULT_FPS)
+    if not math.isfinite(fps) or fps <= 0:
+        raise BakeError(f"{name}: fps must be positive and finite")
+    durations = None
     video = cfg.get("video")
     tmp = tempfile.TemporaryDirectory(prefix="atlas-frames-")   # decoded video frames never live in the card
     try:
@@ -231,7 +270,9 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
             paths = sorted(p for p in card.glob(video) if p.suffix.lower() in VIDEO_SUFFIXES)
             if not paths:
                 raise BakeError(f"no video matches `{video}`")
-            frames = _frames_from_video(paths[0], Path(tmp.name))
+            frames, durations = _frames_from_video(paths[0], Path(tmp.name))
+            frames, durations = _sample_video(frames, durations, fps)
+            fps = 1000 / durations[0]
             sources += paths
         elif cfg.get("frames"):
             frames = _frames_from_dir(card, cfg["frames"])
@@ -242,14 +283,19 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
                 raise BakeError(
                     f"{name}: no frames. Render the scene to stills (`frames/` under media/src/{name}/), or set "
                     f"`anim.{name}.frames` / `anim.{name}.video` in media/bake.yaml")
+        sheet_sources = list(frames) if not video else []
+        original_count = len(frames)
         frames, fps = _subsample(frames, fps)
         width, height, columns, data = _sheet(frames, int(cfg.get("width") or DEFAULT_WIDTH))
-        sheet_sources = frames if not video else []
     finally:
         tmp.cleanup()
     sheet = card / MEDIA_DIR / f"{name}.webp"
     sheet.write_bytes(data)
     captions = [str(c) for c in (cfg.get("captions") or [])][: len(frames)]
+    if not video and original_count > len(frames):
+        authored = [str(c) for c in (cfg.get("captions") or [])]
+        captions = [authored[int(i * original_count / len(frames))] if int(i * original_count / len(frames)) < len(authored)
+                    else "" for i in range(len(frames))]
     manifest = {
         "kind": "anim",
         "id": name,
@@ -259,11 +305,13 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
         "columns": columns,
         "frames": len(frames),
         "fps": round(fps, 3),
-        "ms": max(16, round(1000 / fps)),
+        "ms": 1000 / fps,
         "captions": captions,
         "baked_at": _now(),
         "sources": _sources(card, sources + sheet_sources + ([card / MEDIA_DIR / CONFIG] if (card / MEDIA_DIR / CONFIG).exists() else [])),
     }
+    if durations is not None:
+        manifest["durations"] = durations
     (card / MEDIA_DIR / f"{name}.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", "utf-8")
     return {"kind": "anim", "frames": len(frames), "bytes": len(data), "sheet": f"media/{name}.webp"}
 
@@ -398,6 +446,9 @@ def bake_card(card: Path, only: set[str] | None = None) -> dict:
     """Bake every asset the card declares. Returns what was written, for the CLI's JSON output."""
     cfg = bake_config(card)
     anims, charts = anim_names(card, cfg), chart_names(card, cfg)
+    for name in anims + charts:
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+            raise BakeError("media names may use letters, digits, dot, dash and underscore only")
     clash = sorted(set(anims) & set(charts))
     if clash:
         raise BakeError(f"`{clash[0]}` is declared as both an animation and a chart; rename one "
@@ -424,6 +475,9 @@ def stale(card: Path, manifest: dict) -> list[str]:
     changed = []
     for rel, digest in (manifest.get("sources") or {}).items():
         p = card / rel
+        if not p.resolve().is_relative_to(card.resolve()):
+            changed.append(f"invalid source path: {rel}")
+            continue
         if p.is_file() and _hash(p) != digest:
             changed.append(rel)
     return changed

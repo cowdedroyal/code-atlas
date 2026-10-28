@@ -228,6 +228,93 @@ def test_cli_card_bake_explains_that_there_is_nothing_to_bake(tmp_path):
     assert "nothing to bake" in r.output
 
 
+def test_revert_restores_deleted_animation_and_builds(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    assert delete_card(repo, "user-flow", run="d1")["ok"]
+    assert revert(repo, "d1")["ok"]
+    assert (cards_dir(repo) / "user-flow/media/flow.webp").read_bytes() == WEBP
+    assert "user-flow" in build_data(repo)["cards"]
+
+
+def test_revert_restores_animation_bytes_after_update_and_removes_new_card(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    _baked_anim(d, WEBP + b"new")
+    assert apply_card(repo, d, run="a2")["ok"]
+    assert revert(repo, "a2")["ok"]
+    assert (cards_dir(repo) / "user-flow/media/flow.webp").read_bytes() == WEBP
+    assert "user-flow" in build_data(repo)["cards"]
+    assert revert(repo, "a1")["ok"]
+    assert not (cards_dir(repo) / "user-flow").exists()
+
+
+def test_revert_refuses_binary_changes_since_run(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    (cards_dir(repo) / "user-flow/media/flow.webp").write_bytes(WEBP + b"manual")
+    assert not revert(repo, "a1")["ok"]
+
+
+def test_missing_sheet_is_rejected_and_build_skips_card(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    (cards_dir(repo) / "user-flow/media/flow.webp").unlink()
+    data = build_data(repo)
+    assert "user-flow" in data["skipped_cards"]
+    assert "user-flow" not in data["cards"]
+    (d / "media/flow.webp").unlink()
+    assert not validate_card(repo, d)["ok"]
+
+
+def test_reapply_repairs_missing_stored_sheet(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    (cards_dir(repo) / "user-flow/media/flow.webp").unlink()
+    assert apply_card(repo, d, run="repair")["ok"]
+    assert "user-flow" in build_data(repo)["cards"]
+
+
+def test_apply_copies_only_referenced_assets_and_supports_png(tmp_path):
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    m = json.loads((d / "media/flow.json").read_text("utf-8"))
+    m["sheet"] = "flow.png"
+    (d / "media/flow.json").write_text(json.dumps(m), "utf-8")
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=")
+    (d / "media/flow.png").write_bytes(png)
+    (d / "media/data.json").write_text('[{"private": "authored data"}]', "utf-8")
+    assert apply_card(repo, d, run="a1")["ok"]
+    copied = cards_dir(repo) / "user-flow/media"
+    assert {p.name for p in copied.iterdir()} == {"flow.json", "flow.png"}
+    assert "data:image/png;base64," in build_data(repo)["cards"]["user-flow"]
+
+
+def test_build_handles_media_disappearing_after_lint(tmp_path, monkeypatch):
+    import code_atlas.site as site
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=MEDIA_PAGE)
+    _baked_anim(d)
+    assert apply_card(repo, d, run="a1")["ok"]
+    original = site.inline_media
+    def disappear(card, manifests, names):
+        (card / "media/flow.webp").unlink()
+        return original(card, manifests, names)
+    monkeypatch.setattr(site, "inline_media", disappear)
+    assert "user-flow" in build_data(repo)["skipped_cards"]
+
+
 def test_vendored_kit_matches_atlas_explainer_when_available():
     script = Path(__file__).parent.parent / "scripts" / "sync_explainer_kit.py"
     root = script.parent.parent

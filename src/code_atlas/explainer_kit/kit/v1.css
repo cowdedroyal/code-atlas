@@ -175,7 +175,7 @@ ex-anim .ex-missing, ex-chart .ex-missing { margin: 0; padding: .7rem; font-size
 ex-chart { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
 ex-chart .ex-chart-body { position: relative; padding: .5rem .6rem .35rem; background: var(--ex-bg); }
 ex-chart .ex-chart-canvas { position: relative; width: 100%; min-height: 2rem; }
-ex-chart svg { display: block; width: 100%; height: auto; max-width: 100%; }
+ex-chart svg, ex-chart .ex-chart-svg img { display: block; width: 100%; height: auto; max-width: 100%; }
 ex-chart .ex-chart-dark { display: none; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) ex-chart .ex-chart-light { display: none; }
