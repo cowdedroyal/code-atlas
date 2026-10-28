@@ -114,12 +114,14 @@ def _write_card(dst: Path, manifest: dict, html: str) -> None:
 
 
 def baked_media(card: Path) -> dict[str, bytes]:
-    """The assets a card carries: baked manifests and sprite sheets, never the authored sources.
+    """The assets a card carries: baked manifests, sprite sheets, and the small authored scene files.
 
     A Vega-Lite spec (`*.vl.json`) and the frames a sheet was made from are inputs to `bake`, not part of the card:
-    copying them would mean committing a Motion Canvas project (with `node_modules`) to the mapped repository.
+    copying them would mean committing a Motion Canvas project (with `node_modules`) to the mapped repository. A scene
+    is different — `media/scenes/<name>.yaml` *is* the explanation, a few kilobytes of text — so it travels with the
+    card and can be edited and re-baked in place.
     """
-    from ..explainer_kit.pack import load_media, media_path, sheet_path
+    from ..explainer_kit.pack import media_path, load_media, sheet_path
     manifests, errors = load_media(card)
     if errors:
         raise ValueError("; ".join(errors))
@@ -130,6 +132,11 @@ def baked_media(card: Path) -> dict[str, bytes]:
         if manifest["kind"] == "anim":
             p = sheet_path(card, manifest)
             files[p.name] = p.read_bytes()
+    scenes = card / "media" / "scenes"
+    if scenes.is_dir():
+        for p in sorted(scenes.iterdir()):
+            if p.is_file() and p.suffix.lower() in (".yaml", ".yml", ".json"):
+                files[f"scenes/{p.name}"] = p.read_bytes()
     return files
 
 
@@ -141,10 +148,15 @@ def _write_media(dst: Path, files: dict[str, bytes]) -> None:
         return
     d.mkdir(parents=True, exist_ok=True)
     for name, data in files.items():
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
         (d / name).write_bytes(data)
-    for p in d.iterdir():                      # a re-applied card must not keep a sheet it no longer uses
-        if p.is_file() and p.name not in files:
+    keep = set(files)
+    for p in sorted(d.rglob("*")):             # a re-applied card must not keep a sheet or scene it no longer uses
+        if p.is_file() and p.relative_to(d).as_posix() not in keep:
             p.unlink()
+    for p in sorted(d.rglob("*"), reverse=True):
+        if p.is_dir() and not any(p.iterdir()):
+            p.rmdir()
 
 
 def _record(repo: Path, run: str, at: str, before: dict, change: dict, intent: str) -> None:

@@ -110,8 +110,13 @@ Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片�
 
 | 写作工具 | 何时运行 | 进入卡片的东西 |
 |---|---|---|
+| 手写 YAML（`<ex-scene>`） | `codeatlas card bake` | 节点、箭头与逐步变化的 JSON（几 KB），由套件画成实时 SVG |
 | Motion Canvas（MIT）、Manim（MIT），或任何能输出静帧／视频的工具 | `codeatlas card bake` | 雪碧图 `media/<name>.webp` + 帧栅格、逐帧字幕 `media/<name>.json` |
 | Vega-Lite（BSD-3） | `codeatlas card bake` | 每主题一份内联 SVG；声明 `interactive` 时再加编译后的 Vega spec |
+
+**为什么场景优先。** 动画是像素：文字不可搜、不随字号缩放、不能翻译，读者只能"看"，不能停在某一步。场景把这些都反过来：
+每一步是一次点击，标题说明这一步解释什么，节点上的载荷是这个阶段真实的内容，文字是实时 SVG，跟随主题、语言和字号。
+因此套件的默认表达是 `<ex-scene>`；`<ex-anim>` 只留给"运动本身就是答案"的情况（轨迹、缓动、物理过程）。
 
 卡片用 `<ex-anim src="atlas-media:flow">`、`<ex-chart src="atlas-media:throughput">` 引用它们；`pack` 把 manifest 与雪碧图
 （data URI）注入页面的 `#atlas-media-registry`，阅读层不需要知道媒体存在。`card apply` 只复制烘焙产物到

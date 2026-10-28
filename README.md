@@ -146,12 +146,14 @@ codeatlas card confirm ID                   # after reviewing a stale card again
 codeatlas card delete ID
 ```
 
-A card can also show a short **animation** (rendered with Motion Canvas or Manim, or any tool that writes stills or a
-video) and a **chart** of real data (written as Vega-Lite, optionally interactive). Both are baked at authoring time —
-`card bake` needs the optional extra (`pip install 'repo-code-atlas[media]'`) — and only the result travels: a sprite
-sheet with per-frame captions, or an SVG plus a compiled Vega spec. `apply` copies those baked assets next to the card,
-and `build` inlines them, so the reader still gets one page with no network and no scripts of its own. Recipes and the
-size budget are in the [explainer skill](extensions/atlas-explainer/skill/explain/references/media.md).
+A card can also show a **scene** (a diagram the reader clicks through: labelled boxes, arrows, and the payload that
+changes at each step), a **chart** of real data (Vega-Lite, optionally interactive), and — for continuous motion only —
+a short **animation** (rendered with Motion Canvas or Manim). All of it is baked at authoring time — `card bake` needs
+the optional extra (`pip install 'repo-code-atlas[media]'`) for charts and animations, but not for scenes — and only
+the result travels: a few kilobytes of scene JSON and its YAML source, an SVG plus a compiled Vega spec, or a sprite
+sheet. `apply` copies those baked assets next to the card, and `build` inlines them, so the reader still gets one page
+with no network and no scripts of its own. Recipes and the size budget are in the
+[explainer skill](extensions/atlas-explainer/skill/explain/references/media.md).
 
 Select an anchored node and the detail panel lists its cards under **Explanations** (a file also lists the cards on its
 symbols, a symbol the cards on its class). A card opens in a reading layer: a sandboxed iframe with no network access whose

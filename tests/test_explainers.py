@@ -315,6 +315,39 @@ def test_build_handles_media_disappearing_after_lint(tmp_path, monkeypatch):
     assert "user-flow" in build_data(repo)["skipped_cards"]
 
 
+SCENE_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="atlas-kit:1.css"></head>
+<body><h1>How a user is made</h1>
+<ex-scene src="atlas-media:flow" source="illustrative" caption="one box, then another"></ex-scene>
+<script src="atlas-kit:1.js"></script></body></html>
+"""
+
+SCENE_YAML = """size: [420, 200]
+nodes:
+  - {id: a, kind: box, text: greet, at: [20, 80], size: [120, 56]}
+  - {id: b, kind: box, text: save, at: [220, 80], size: [120, 56]}
+steps:
+  - {title: "greet builds the user", detail: "nothing is written yet", show: [a], focus: [a]}
+  - {title: "save persists it", show: [b], move: {a: [20, 80]}, tone: {b: ok}}
+"""
+
+
+def test_scene_card_bakes_carries_its_source_and_builds(tmp_path):
+    from code_atlas.explainer_kit.media import bake_card
+    repo = setup(tmp_path)
+    d = draft(tmp_path, page=SCENE_PAGE)
+    scenes = d / "media" / "scenes"
+    scenes.mkdir(parents=True)
+    (scenes / "flow.yaml").write_text(SCENE_YAML, "utf-8")
+    assert bake_card(d)["media"]["flow"]["kind"] == "scene"
+    assert apply_card(repo, d, run="c1")["ok"]
+    assert (cards_dir(repo) / "user-flow" / "media" / "scenes" / "flow.yaml").is_file()
+    page = build_data(repo)["cards"]["user-flow"]
+    assert "atlas-media-registry" in page
+    registry = page.split('id="atlas-media-registry"')[1].split("</script>")[0]
+    assert '"kind":"scene"' in registry and "data:image/" not in registry
+
+
 def test_vendored_kit_matches_atlas_explainer_when_available():
     script = Path(__file__).parent.parent / "scripts" / "sync_explainer_kit.py"
     root = script.parent.parent

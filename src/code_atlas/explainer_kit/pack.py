@@ -34,14 +34,14 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from . import KIT_VERSION
-from .media import stale
+from .media import stale, validate_scene
 
 PKG = Path(__file__).parent
 MAX_BYTES = 200_000            # the page itself: prose, tags, the kit
 MAX_MEDIA_BYTES = 2_000_000    # baked animation/chart media, inlined at pack time
 MEDIA = "media"
 MEDIA_SCHEME = "atlas-media:"
-MEDIA_TAGS = {"ex-anim": "anim", "ex-chart": "chart"}
+MEDIA_TAGS = {"ex-anim": "anim", "ex-chart": "chart", "ex-scene": "scene"}
 VENDOR = PKG / MEDIA / "vendor"
 RUNTIME = [VENDOR / "vega.min.js", VENDOR / "vega-interpreter.min.js"]
 LICENSES = [VENDOR / "LICENSE-vega.txt", VENDOR / "LICENSE-vega-interpreter.txt"]
@@ -235,11 +235,13 @@ def _vega_errors(value) -> list[str]:
 
 
 def _media_errors(m: dict) -> list[str]:
-    if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart"):
-        return ["not a baked asset (`kind` must be `anim` or `chart`); run `atlas-explainer bake`"]
+    if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart", "scene"):
+        return ["not a baked asset (`kind` must be `anim`, `chart` or `scene`); run `atlas-explainer bake`"]
     sources = m.get("sources", {})
     if not isinstance(sources, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in sources.items()):
         return ["sources must map card-relative filenames to hashes"]
+    if m["kind"] == "scene":
+        return validate_scene(m.get("scene"))
     if m["kind"] == "anim":
         for key in ("width", "height", "columns", "frames"):
             if type(m.get(key)) is not int or m[key] <= 0:
@@ -339,7 +341,7 @@ def inline_media(card: Path, media: dict[str, dict], names) -> dict[str, dict]:
 
 
 def media_size(card: Path, m: dict) -> int:
-    """What the manifest costs once inlined: sprite sheet, or the SVG/Vega spec and the runtime for charts."""
+    """What the manifest costs once inlined: sprite sheet, SVG/Vega spec, or a scene's few kilobytes of JSON."""
     if m["kind"] == "anim":
         sheet = sheet_path(card, m)
         return len(json.dumps(m).encode("utf-8")) + 4 * ((sheet.stat().st_size + 2) // 3)

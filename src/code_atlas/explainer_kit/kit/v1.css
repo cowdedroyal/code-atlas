@@ -78,17 +78,20 @@ ex-table > table { border: 0; margin: 0; }
 ex-table > table :is(th, td) { border-left: 0; border-right: 0; }
 ex-table > table tr:last-child td { border-bottom: 0; }
 ex-table .ex-scroll { overflow-x: auto; }
-ex-table .ex-badge, ex-chart .ex-badge, ex-anim .ex-badge {
+ex-table .ex-badge, ex-chart .ex-badge, ex-anim .ex-badge, ex-scene .ex-badge {
   display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: baseline;
   padding: .3rem .7rem; font-size: .78rem; line-height: 1.5; border-bottom: 1px solid var(--ex-line);
 }
-ex-table .ex-badge b, ex-chart .ex-badge b, ex-anim .ex-badge b { font-weight: 650; }
-ex-table .ex-badge span, ex-chart .ex-badge span, ex-anim .ex-badge span { color: var(--ex-muted); }
-ex-table[source="real"] .ex-badge, ex-chart[source="real"] .ex-badge, ex-anim[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
-ex-table[source="illustrative"] .ex-badge, ex-chart[source="illustrative"] .ex-badge, ex-anim[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
+ex-table .ex-badge b, ex-chart .ex-badge b, ex-anim .ex-badge b, ex-scene .ex-badge b { font-weight: 650; }
+ex-table .ex-badge span, ex-chart .ex-badge span, ex-anim .ex-badge span, ex-scene .ex-badge span { color: var(--ex-muted); }
+ex-table[source="real"] .ex-badge, ex-chart[source="real"] .ex-badge, ex-anim[source="real"] .ex-badge,
+ex-scene[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
+ex-table[source="illustrative"] .ex-badge, ex-chart[source="illustrative"] .ex-badge, ex-anim[source="illustrative"] .ex-badge,
+ex-scene[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
 ex-table:not([source="real"]):not([source="illustrative"]) .ex-badge,
 ex-chart:not([source="real"]):not([source="illustrative"]) .ex-badge,
-ex-anim:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-anim:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-scene:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
 ex-table .ex-cap { padding: .35rem .7rem; font-size: .8rem; color: var(--ex-muted); border-top: 1px solid var(--ex-line); }
 
 /* ---- <ex-flow> / <ex-stage title tag> : one thing travelling through stages ---- */
@@ -144,7 +147,7 @@ ex-after ins { background: var(--ex-add-bg); color: var(--ex-add); }
 
 /* ---- <ex-anim src="atlas-media:…"> : a baked frame animation ------------------ */
 ex-anim { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
-ex-anim .ex-badge, ex-chart .ex-badge { border-bottom: 1px solid var(--ex-line); }
+ex-anim .ex-badge, ex-scene .ex-badge, ex-chart .ex-badge { border-bottom: 1px solid var(--ex-line); }
 ex-anim figure, ex-chart figure { margin: 0; }
 ex-anim .ex-anim-view {
   position: relative; width: 100%; background: var(--ex-surface); overflow: hidden;
@@ -191,3 +194,69 @@ ex-chart .ex-tip {
 }
 ex-chart .ex-tip-row { display: flex; gap: .5rem; justify-content: space-between; white-space: nowrap; }
 ex-chart .ex-tip-row b { font-weight: 650; color: var(--ex-muted); }
+
+/* ---- <ex-scene src="atlas-media:…"> : a click-through diagram ---------------- */
+ex-scene { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-scene figure { margin: 0; }
+ex-scene figure:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: -2px; }
+ex-scene .ex-scene-stage {
+  padding: .5rem .6rem; background: var(--ex-surface); border-bottom: 1px solid var(--ex-line); cursor: pointer;
+}
+ex-scene svg { display: block; width: 100%; height: auto; overflow: visible; }
+ex-scene .ex-node { transition: opacity .18s ease, transform .32s cubic-bezier(.2, .8, .2, 1); }
+ex-scene .ex-node.is-dim { opacity: .22; }
+ex-scene .ex-node.is-hidden { opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .18s ease, visibility 0s linear .18s; }
+ex-scene .ex-shape { fill: var(--ex-bg); stroke: var(--ex-line); stroke-width: 1.5; }
+ex-scene .ex-label { font: 500 13px var(--ex-sans); fill: var(--ex-fg); }
+ex-scene .ex-sub { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); }
+ex-scene .t-accent .ex-shape { stroke: var(--ex-accent); stroke-width: 2; }
+ex-scene .t-accent .ex-label, ex-scene .t-accent .ex-sub { fill: var(--ex-accent); }
+ex-scene .t-own .ex-shape { fill: var(--ex-accent-soft); stroke: var(--ex-accent); }
+ex-scene .t-own .ex-label { fill: var(--ex-accent); }
+ex-scene .t-ok .ex-shape { stroke: var(--ex-add); }
+ex-scene .t-ok .ex-label { fill: var(--ex-add); }
+ex-scene .t-warn .ex-shape { stroke: var(--ex-warn); }
+ex-scene .t-warn .ex-label { fill: var(--ex-warn); }
+ex-scene .t-del .ex-shape { stroke: var(--ex-del); }
+ex-scene .t-del .ex-label { fill: var(--ex-del); }
+ex-scene .t-muted .ex-label, ex-scene .t-muted .ex-sub { fill: var(--ex-muted); }
+ex-scene .ex-track { fill: var(--ex-surface); stroke: var(--ex-line); stroke-width: 1; }
+ex-scene .ex-fill { fill: var(--ex-accent); stroke: none; }
+ex-scene .t-ok .ex-fill { fill: var(--ex-add); }
+ex-scene .t-warn .ex-fill { fill: var(--ex-warn); }
+ex-scene .t-del .ex-fill { fill: var(--ex-del); }
+ex-scene .t-muted .ex-fill { fill: var(--ex-line); }
+ex-scene .ex-on-fill { fill: var(--ex-bg); }
+ex-scene .ex-arrow-head { fill: var(--ex-muted); }
+ex-scene .ex-edge { fill: none; stroke: var(--ex-muted); stroke-width: 1.4; transition: opacity .18s ease; }
+ex-scene .ex-edge.ex-dashed { stroke-dasharray: 5 4; }
+ex-scene .ex-edge.is-hidden { opacity: 0; visibility: hidden; }
+ex-scene .ex-edge-label { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); }
+ex-scene .ex-scene-cap { padding: .5rem .7rem .1rem; font-size: .86rem; line-height: 1.5; }
+ex-scene .ex-scene-cap b { display: block; font-weight: 650; color: var(--ex-fg); }
+ex-scene .ex-scene-cap span { color: var(--ex-muted); }
+ex-scene .ex-scene-cap span:empty { display: none; }
+ex-scene .ex-scene-bar { display: flex; align-items: center; gap: .55rem; padding: .4rem .7rem .55rem; }
+ex-scene .ex-prev, ex-scene .ex-next {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none;
+  padding: .1rem .55rem; border: 1px solid var(--ex-line); border-radius: 5px; background: var(--ex-bg);
+  font: 600 .78rem/1.7 var(--ex-sans); color: var(--ex-fg);
+}
+ex-scene .ex-prev:hover:not(:disabled), ex-scene .ex-next:hover:not(:disabled) { border-color: var(--ex-accent); color: var(--ex-accent); }
+ex-scene .ex-prev:disabled, ex-scene .ex-next:disabled { opacity: .4; cursor: default; }
+ex-scene .ex-prev:focus-visible, ex-scene .ex-next:focus-visible, ex-scene .ex-dot:focus-visible {
+  outline: 2px solid var(--ex-accent); outline-offset: 2px;
+}
+ex-scene .ex-scene-dots { display: flex; flex: 1 1 auto; gap: .3rem; align-items: center; }
+ex-scene .ex-dot {
+  all: unset; box-sizing: border-box; cursor: pointer; width: .62rem; height: .62rem; border-radius: 50%;
+  border: 1px solid var(--ex-line); background: var(--ex-bg);
+}
+ex-scene .ex-dot.is-done { background: var(--ex-accent-soft); border-color: var(--ex-accent); }
+ex-scene .ex-dot.is-on { background: var(--ex-accent); border-color: var(--ex-accent); }
+ex-scene .ex-count { font: .74rem var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums; }
+ex-scene .ex-missing { margin: 0; padding: .7rem; font-size: .85rem; color: var(--ex-del); background: var(--ex-del-bg); }
+@media (prefers-reduced-motion: reduce) {
+  ex-scene .ex-node, ex-scene .ex-edge { transition: none; }
+}
