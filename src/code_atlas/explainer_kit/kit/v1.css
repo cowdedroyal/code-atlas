@@ -208,6 +208,9 @@ ex-scene .ex-node.is-dim { opacity: .22; }
 ex-scene .ex-node.is-hidden { opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity .18s ease, visibility 0s linear .18s; }
 ex-scene .ex-shape { fill: var(--ex-bg); stroke: var(--ex-line); stroke-width: 1.5; }
+ex-scene .is-dashed .ex-shape { stroke-dasharray: 5 4; fill: none; }
+ex-scene .ex-node, ex-scene .ex-shape, ex-scene .ex-fill { transition: opacity .18s ease, transform .32s cubic-bezier(.2,.8,.2,1),
+  width .32s cubic-bezier(.2,.8,.2,1), height .32s cubic-bezier(.2,.8,.2,1), x .32s, y .32s; }
 ex-scene .ex-label { font: 500 13px var(--ex-sans); fill: var(--ex-fg); }
 ex-scene .ex-sub { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); }
 ex-scene .t-accent .ex-shape { stroke: var(--ex-accent); stroke-width: 2; }

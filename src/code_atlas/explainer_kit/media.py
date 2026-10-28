@@ -484,6 +484,7 @@ def normalize_scene(raw: dict) -> dict:
             "sub": node.get("sub"),
             "tone": node.get("tone", "default"),
             "value": node.get("value", 1 if kind == "bar" else None),
+            "dashed": bool(node.get("dashed")),
         })
     for edge in raw.get("edges") or []:
         if not isinstance(edge, dict):
@@ -502,6 +503,7 @@ def normalize_scene(raw: dict) -> dict:
             "hide": list(step.get("hide") or []),
             "focus": list(step["focus"]) if "focus" in step else None,
             "move": step.get("move") or {},
+            "size": step.get("size") or {},
             "text": step.get("text") or {},
             "sub": step.get("sub") or {},
             "value": step.get("value") or {},
@@ -548,6 +550,8 @@ def validate_scene(scene) -> list[str]:
             errors.append(f"{where}: sub must be a string of at most 120 characters")
         if node.get("tone") not in SCENE_TONES:
             errors.append(f"{where}: tone must be one of {', '.join(sorted(SCENE_TONES))}")
+        if not isinstance(node.get("dashed", False), bool):
+            errors.append(f"{where}: dashed must be true or false")
         value = node.get("value")
         if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)
                                   or not 0 <= float(value) <= 1):
@@ -562,8 +566,9 @@ def validate_scene(scene) -> list[str]:
             errors.append(f"{where}: not an object")
             continue
         for end in ("from", "to"):
-            if edge.get(end) not in ids:
-                errors.append(f"{where}: {end} must name a node id")
+            value = edge.get(end)
+            if not (isinstance(value, str) and value in ids) and _pair(value) is None:
+                errors.append(f"{where}: {end} must name a node id or be a point")
         if edge.get("label") is not None and _text(edge.get("label"), 80) is None:
             errors.append(f"{where}: label must be a string of at most 80 characters")
     steps = scene.get("steps")
@@ -586,7 +591,7 @@ def validate_scene(scene) -> list[str]:
         if step.get("focus") is not None and (not isinstance(step["focus"], list)
                                               or any(v not in ids for v in step["focus"])):
             errors.append(f"{where}: focus must name node ids (an empty list clears the spotlight)")
-        for key in ("move", "text", "sub", "value", "tone"):
+        for key in ("move", "text", "sub", "value", "tone", "size"):
             value = step.get(key)
             if value is None:
                 continue                    # a manifest baked before this key existed
@@ -596,8 +601,12 @@ def validate_scene(scene) -> list[str]:
             for node_id, change in value.items():
                 if node_id not in ids:
                     errors.append(f"{where}: {key} names unknown node `{node_id}`")
-                elif key == "move" and _pair(change) is None:
-                    errors.append(f"{where}: move[{node_id}] must be a point")
+                elif key in ("move", "size"):
+                    pair = _pair(change)
+                    if pair is None:
+                        errors.append(f"{where}: {key}[{node_id}] must be a point")
+                    elif key == "size" and not all(v > 0 for v in pair):
+                        errors.append(f"{where}: size[{node_id}] must be positive")
                 elif key in ("text", "sub") and _text(change, 160) is None:
                     errors.append(f"{where}: {key}[{node_id}] must be a string of at most 160 characters")
                 elif key == "value" and (not isinstance(change, (int, float)) or isinstance(change, bool)
@@ -605,7 +614,7 @@ def validate_scene(scene) -> list[str]:
                     errors.append(f"{where}: value[{node_id}] must be between 0 and 1")
                 elif key == "tone" and change not in SCENE_TONES:
                     errors.append(f"{where}: tone[{node_id}] must be one of {', '.join(sorted(SCENE_TONES))}")
-        changes = any(step.get(k) for k in ("show", "hide", "focus", "move", "text", "sub", "value", "tone"))
+        changes = any(step.get(k) for k in ("show", "hide", "focus", "move", "text", "sub", "value", "tone", "size"))
         if not changes and not (step.get("detail") or "").strip():
             errors.append(f"{where}: a step must change something or explain something, or the click is pointless")
     return errors

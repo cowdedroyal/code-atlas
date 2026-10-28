@@ -307,14 +307,6 @@
     return n;
   }
 
-  function anchorOf(a, b) {
-    var ax = a.at[0], ay = a.at[1], aw = a.size[0], ah = a.size[1];
-    var bx = b.at[0], by = b.at[1], bw = b.size[0], bh = b.size[1];
-    if (bx >= ax + aw) return [ax + aw, ay + ah / 2, bx, by + bh / 2];
-    if (bx + bw <= ax) return [ax, ay + ah / 2, bx + bw, by + bh / 2];
-    return [ax + aw / 2, ay + ah, bx + bw / 2, by];
-  }
-
   function renderScene(node) {
     if (node.__ex) return;
     node.__ex = true;
@@ -344,37 +336,90 @@
 
     var refs = {};
     scene.nodes.forEach(function (n) {
-      var g = svgEl("g", { class: "ex-node k-" + n.kind + " t-" + n.tone });
-      var cx = n.at[0] + n.size[0] / 2, cy = n.at[1] + n.size[1] / 2;
-      var shape = null, fill = null, label, sub = null;
+      var g = svgEl("g", { class: "ex-node k-" + n.kind + " t-" + n.tone + (n.dashed ? " is-dashed" : "") });
+      var shape = null, fill = null, sub = null;
+      var label = svgEl("text", { class: "ex-label", "dominant-baseline": "middle" });
       if (n.kind === "label") {
-        label = svgEl("text", { x: n.at[0], y: cy, class: "ex-label", "text-anchor": "middle", "dominant-baseline": "middle" });
+        label.setAttribute("text-anchor", "middle");
+        g.appendChild(label);
       } else if (n.kind === "dot") {
-        shape = svgEl("circle", { cx: cx, cy: cy, r: Math.max(3, n.size[0] / 2), class: "ex-shape" });
-        label = svgEl("text", { x: cx, y: cy, class: "ex-label", "text-anchor": "middle", "dominant-baseline": "middle" });
+        shape = svgEl("circle", { class: "ex-shape" });
+        label.setAttribute("text-anchor", "middle");
+        g.appendChild(shape);
+        g.appendChild(label);
       } else if (n.kind === "bar") {
-        shape = svgEl("rect", { x: n.at[0], y: n.at[1], width: n.size[0], height: n.size[1], rx: 3, class: "ex-track" });
-        fill = svgEl("rect", { x: n.at[0], y: n.at[1], width: n.size[0] * (n.value == null ? 1 : n.value),
-                               height: n.size[1], rx: 3, class: "ex-fill" });
-        label = svgEl("text", { x: n.at[0] + 6, y: cy + 1, class: "ex-label ex-on-fill", "dominant-baseline": "middle" });
+        shape = svgEl("rect", { rx: 3, class: "ex-track" });
+        fill = svgEl("rect", { rx: 3, class: "ex-fill" });
+        label.setAttribute("class", "ex-label ex-on-fill");
+        g.appendChild(shape);
+        g.appendChild(fill);
+        g.appendChild(label);
       } else {
-        shape = svgEl("rect", { x: n.at[0], y: n.at[1], width: Math.max(2, n.size[0]), height: Math.max(2, n.size[1]),
-                                rx: n.kind === "chip" ? 9 : 6, class: "ex-shape" });
-        label = svgEl("text", { x: cx, y: n.sub ? cy - 5 : cy, class: "ex-label", "text-anchor": "middle",
-                                "dominant-baseline": "middle" });
+        shape = svgEl("rect", { rx: n.kind === "chip" ? 9 : 6, class: "ex-shape" });
+        label.setAttribute("text-anchor", "middle");
+        g.appendChild(shape);
+        g.appendChild(label);
       }
-      if (fill) g.appendChild(shape), g.appendChild(fill);
-      else if (shape) g.appendChild(shape);
       label.textContent = n.text || "";
-      g.appendChild(label);
       if (n.sub) {
-        sub = svgEl("text", { x: cx, y: cy + 9, class: "ex-sub", "text-anchor": "middle", "dominant-baseline": "middle" });
+        sub = svgEl("text", { class: "ex-sub", "text-anchor": "middle", "dominant-baseline": "middle" });
         sub.textContent = n.sub;
         g.appendChild(sub);
       }
       gNodes.appendChild(g);
       refs[n.id] = { node: n, g: g, shape: shape, fill: fill, label: label, sub: sub };
+      layout(refs[n.id], n.size[0], n.size[1]);
     });
+
+    /* Place a node for a given size. The group's transform carries `at`, so everything here is in its own frame. */
+    function layout(r, w, h) {
+      var at = r.node.at, cy = at[1] + h / 2;
+      if (r.shape && r.node.kind === "dot") {
+        r.shape.setAttribute("cx", at[0] + w / 2);
+        r.shape.setAttribute("cy", cy);
+        r.shape.setAttribute("r", Math.max(3, w / 2));
+      } else if (r.shape) {
+        r.shape.setAttribute("x", at[0]);
+        r.shape.setAttribute("y", at[1]);
+        r.shape.setAttribute("width", Math.max(2, w));
+        r.shape.setAttribute("height", Math.max(2, h));
+      }
+      if (r.fill) {
+        r.fill.setAttribute("x", at[0]);
+        r.fill.setAttribute("y", at[1]);
+        r.fill.setAttribute("height", Math.max(2, h));
+      }
+      if (r.node.kind === "label") {
+        r.label.setAttribute("x", at[0]);
+        r.label.setAttribute("y", cy);
+      } else if (r.node.kind === "bar") {
+        r.label.setAttribute("x", at[0] + 6);
+        r.label.setAttribute("y", cy + 1);
+      } else {
+        r.label.setAttribute("x", at[0] + w / 2);
+        r.label.setAttribute("y", r.sub ? cy - 5 : cy);
+      }
+      if (r.sub) {
+        r.sub.setAttribute("x", at[0] + w / 2);
+        r.sub.setAttribute("y", cy + 9);
+      }
+      r.w = w;
+      r.h = h;
+    }
+
+    /* An edge end is either a node id or a point, so a bracket or a leader line can sit anywhere. */
+    function endBox(ref, st) {
+      if (ref && typeof ref === "object") return { at: [Number(ref[0]), Number(ref[1])], size: [0, 0] };
+      return { at: st.at[ref], size: [st.size[ref][0], st.size[ref][1]] };
+    }
+
+    function borderPoint(box, toward) {
+      var x = box.at[0], y = box.at[1], w = box.size[0], h = box.size[1], cy = y + h / 2;
+      if (!w && !h) return [x, y];
+      if (toward[0] >= x + w) return [x + w, cy];
+      if (toward[0] <= x) return [x, cy];
+      return [x + w / 2, toward[1] >= cy ? y + h : y];
+    }
 
     var edges = scene.edges.map(function (e) {
       var path = svgEl("path", { class: "ex-edge" + (e.dashed ? " ex-dashed" : ""), "marker-end": "url(#" + uid + ")" });
@@ -395,10 +440,11 @@
       (s.hide || []).forEach(function (id) { mentioned[id] = 1; });
     });
     function stateAt(k) {
-      var st = { visible: {}, at: {}, text: {}, sub: {}, value: {}, tone: {}, focus: null };
+      var st = { visible: {}, at: {}, size: {}, text: {}, sub: {}, value: {}, tone: {}, focus: null };
       scene.nodes.forEach(function (n) {
         st.visible[n.id] = !mentioned[n.id];
         st.at[n.id] = n.at.slice();
+        st.size[n.id] = n.size.slice();
         st.text[n.id] = n.text || "";
         st.sub[n.id] = n.sub;
         st.value[n.id] = n.value;
@@ -409,6 +455,7 @@
         (s.show || []).forEach(function (id) { st.visible[id] = true; });
         (s.hide || []).forEach(function (id) { st.visible[id] = false; });
         Object.keys(s.move || {}).forEach(function (id) { st.at[id] = s.move[id].slice(); });
+        Object.keys(s.size || {}).forEach(function (id) { st.size[id] = s.size[id].slice(); });
         Object.keys(s.text || {}).forEach(function (id) { st.text[id] = s.text[id]; });
         Object.keys(s.sub || {}).forEach(function (id) { st.sub[id] = s.sub[id]; });
         Object.keys(s.value || {}).forEach(function (id) { st.value[id] = s.value[id]; });
@@ -454,9 +501,10 @@
       scene.nodes.forEach(function (n) {
         var r = refs[n.id], at = st.at[n.id], visible = st.visible[n.id];
         var dim = visible && st.focus && st.focus.indexOf(n.id) < 0;
-        r.g.setAttribute("class", "ex-node k-" + n.kind + " t-" + st.tone[n.id] + (visible ? "" : " is-hidden") +
-                                  (dim ? " is-dim" : ""));
+        r.g.setAttribute("class", "ex-node k-" + n.kind + " t-" + st.tone[n.id] + (n.dashed ? " is-dashed" : "") +
+                                  (visible ? "" : " is-hidden") + (dim ? " is-dim" : ""));
         r.g.style.transform = "translate(" + (at[0] - n.at[0]) + "px," + (at[1] - n.at[1]) + "px)";
+        layout(r, st.size[n.id][0], st.size[n.id][1]);
         if (r.label.textContent !== st.text[n.id]) r.label.textContent = st.text[n.id];
         if (r.sub) {
           var sub = st.sub[n.id] == null ? "" : st.sub[n.id];
@@ -465,17 +513,21 @@
         }
         if (r.fill) {
           var value = st.value[n.id] == null ? 1 : st.value[n.id];
-          r.fill.setAttribute("width", Math.max(0, n.size[0] * value));
+          r.fill.setAttribute("width", Math.max(0, st.size[n.id][0] * value));
         }
       });
       edges.forEach(function (e) {
-        var a = refs[e.edge.from], b = refs[e.edge.to];
-        var visible = st.visible[e.edge.from] && st.visible[e.edge.to];
-        var p = anchorOf({ at: st.at[e.edge.from], size: a.node.size }, { at: st.at[e.edge.to], size: b.node.size });
-        e.path.setAttribute("d", "M " + p[0] + " " + p[1] + " L " + p[2] + " " + p[3]);
-        e.path.setAttribute("class", "ex-edge" + (e.edge.dashed ? " ex-dashed" : "") + (visible ? "" : " is-hidden"));        if (e.label) {
-          e.label.setAttribute("x", (p[0] + p[2]) / 2);
-          e.label.setAttribute("y", (p[1] + p[3]) / 2 - 5);
+        var a = endBox(e.edge.from, st), b = endBox(e.edge.to, st);
+        var ca = [a.at[0] + a.size[0] / 2, a.at[1] + a.size[1] / 2];
+        var cb = [b.at[0] + b.size[0] / 2, b.at[1] + b.size[1] / 2];
+        var p1 = borderPoint(a, cb), p2 = borderPoint(b, ca);
+        var visible = (typeof e.edge.from === "object" || st.visible[e.edge.from]) &&
+                      (typeof e.edge.to === "object" || st.visible[e.edge.to]);
+        e.path.setAttribute("d", "M " + p1[0] + " " + p1[1] + " L " + p2[0] + " " + p2[1]);
+        e.path.setAttribute("class", "ex-edge" + (e.edge.dashed ? " ex-dashed" : "") + (visible ? "" : " is-hidden"));
+        if (e.label) {
+          e.label.setAttribute("x", (p1[0] + p2[0]) / 2);
+          e.label.setAttribute("y", (p1[1] + p2[1]) / 2 - 5);
           e.label.setAttribute("class", "ex-edge-label" + (visible ? "" : " is-hidden"));
         }
       });
