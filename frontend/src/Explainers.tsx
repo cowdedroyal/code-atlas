@@ -82,6 +82,8 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   const dialog = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
   const [cinema, setCinema] = useState(false);
   const drag = useRef<{ handle: Handle; x: number; y: number; start: Box } | null>(null);
   const language = card.language ?? graph.meta.language;
@@ -92,13 +94,15 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
     if (!el) return;
     const apply = () => setScale(scaleFor(el.clientWidth));
     apply();
+    // The first layout can happen before the reader has its final width; measure again once the card is in.
+    const raf = requestAnimationFrame(apply);
     if (typeof ResizeObserver !== "function") {
       window.addEventListener("resize", apply);
       return () => window.removeEventListener("resize", apply);
     }
     const ro = new ResizeObserver(apply);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
   // A window resize must not leave a dragged box hanging outside the viewport.
@@ -116,8 +120,8 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   }, [card.id]);
 
   const sendTheme = () =>
-    frame.current?.contentWindow?.postMessage({ type: "atlas:theme", theme: dark ? "dark" : "light", lang: language, scale }, "*");
-  useEffect(sendTheme, [dark, language, scale]);
+    frame.current?.contentWindow?.postMessage({ type: "atlas:theme", theme: dark ? "dark" : "light", lang: language, scale: scaleRef.current }, "*");
+  useEffect(() => { sendTheme(); }, [dark, language, scale, html]);
 
   useEffect(() => {
     const on = (e: MessageEvent) => {

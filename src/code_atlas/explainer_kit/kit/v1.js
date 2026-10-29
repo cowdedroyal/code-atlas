@@ -743,6 +743,25 @@
     return null;
   }
 
+  /* A card may ship media/narration.json: one pre-recorded clip per frame. When it does, the screening plays
+   * those clips instead of the device's voices; the browser's speechSynthesis remains the fallback. */
+  var narration = null;
+  function narrationFor() {
+    if (narration !== null) return narration;
+    narration = false;
+    var box = document.getElementById("atlas-media-registry");
+    if (!box) return narration;
+    try {
+      var reg = JSON.parse(box.textContent || "{}") || {};
+      var n = reg.narration;
+      if (n && n.kind === "narration" && n.frames && n.frames.length) narration = n;
+    } catch (e) { /* no registry, no narration */ }
+    return narration;
+  }
+  function voiceName(v) {
+    return v ? v.replace(/^zh-CN-/, "").replace(/Neural$/, "") : "";
+  }
+
   function cinemaUi(frames, title) {
     var rootEl = el("div", "ex-cinema");
     rootEl.setAttribute("role", "dialog");
@@ -814,7 +833,7 @@
     document.body.classList.add("ex-cinema-on");
     cinema = { frames: frames, fig: fig, placeholder: placeholder, ui: ui,
                index: 0, playing: false, finished: false, token: 0,
-               timer: 0, watch: 0, broken: false, voice: cinemaVoice };
+               timer: 0, watch: 0, broken: false, voice: cinemaVoice, audio: null };
     ui.exit.addEventListener("click", exitCinema);
     ui.toggle.addEventListener("click", function () { if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); } });
     ui.prev.addEventListener("click", function () { jumpCinema(-1); });
@@ -909,6 +928,17 @@
     window.clearTimeout(cinema.watch);
     cinema.timer = 0;
     cinema.watch = 0;
+    if (cinema.audio) {
+      var a = cinema.audio;
+      cinema.audio = null;
+      try {
+        a.onended = null;
+        a.onerror = null;
+        a.pause();
+        a.removeAttribute("src");
+        a.load();
+      } catch (e) { /* already gone */ }
+    }
     if (speech) { try { speech.cancel(); } catch (e) { /* no synth after all */ } }
   }
 
@@ -945,7 +975,50 @@
       cinema.timer = window.setTimeout(function () { if (cinema && cinema.playing && cinema.token === token) scheduleNext(token); }, 1400);
       return;
     }
+    var n = narrationFor();
+    var track = n && n.frames ? n.frames[i] : null;
+    if (track && track.audio) { playNarration(token, track, sentence); return; }
     if (!speech || cinema.broken) { fallbackSpeech(token, sentence); return; }
+    speakWithVoice(token, sentence);
+  }
+
+  function playNarration(token, track, sentence) {
+    if (!cinema || cinema.token !== token) return;
+    var a = new Audio(track.audio);
+    cinema.audio = a;
+    a.preload = "auto";
+    var failed = false;
+    function fail() {
+      if (failed || !cinema || cinema.token !== token) return;
+      failed = true;
+      if (cinema.audio === a) cinema.audio = null;
+      try { a.onended = null; a.onerror = null; a.pause(); a.removeAttribute("src"); a.load(); } catch (e) { /* gone */ }
+      if (speech && !cinema.broken) speakWithVoice(token, sentence);
+      else fallbackSpeech(token, sentence);
+    }
+    var n = narrationFor();
+    a.onplay = function () {
+      if (!cinema || cinema.token !== token) return;
+      var who = n && n.voice ? voiceName(n.voice) : "";
+      cinema.ui.status.textContent = t("reading") + (who ? " · " + who : "");
+    };
+    a.onended = function () {
+      if (!cinema || cinema.token !== token) return;
+      window.clearTimeout(cinema.watch);
+      cinema.ui.status.textContent = "";
+      scheduleNext(token);
+    };
+    a.onerror = function () { fail(); };
+    var p = a.play();
+    if (p && typeof p.catch === "function") p.catch(function () { fail(); });
+    window.clearTimeout(cinema.watch);
+    cinema.watch = window.setTimeout(function () {
+      if (cinema && cinema.playing && cinema.token === token) fail();
+    }, Math.max(10000, sentence.length * 350 + 8000));
+  }
+
+  function speakWithVoice(token, sentence) {
+    if (!cinema || cinema.token !== token) return;
     var u = new window.SpeechSynthesisUtterance(sentence);
     u.lang = root.getAttribute("lang") || "zh-CN";
     var v = cinema.voice || voiceFor(u.lang);

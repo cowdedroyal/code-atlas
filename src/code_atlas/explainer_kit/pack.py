@@ -38,15 +38,16 @@ from .media import stale, validate_scene
 
 PKG = Path(__file__).parent
 MAX_BYTES = 200_000            # the page itself: prose, tags, the kit
-MAX_MEDIA_BYTES = 2_000_000    # baked animation/chart media, inlined at pack time
+MAX_MEDIA_BYTES = 2_000_000    # baked animation/chart/narration media, inlined at pack time
 MEDIA = "media"
 MEDIA_SCHEME = "atlas-media:"
 MEDIA_TAGS = {"ex-anim": "anim", "ex-chart": "chart", "ex-scene": "scene"}
+NARRATION = "narration"        # optional media/narration.json: one spoken clip per frame
 VENDOR = PKG / MEDIA / "vendor"
 RUNTIME = [VENDOR / "vega.min.js", VENDOR / "vega-interpreter.min.js"]
 LICENSES = [VENDOR / "LICENSE-vega.txt", VENDOR / "LICENSE-vega-interpreter.txt"]
 CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
-       "img-src data:; font-src data:; base-uri 'none'; form-action 'none'")
+       "img-src data:; font-src data:; media-src data:; base-uri 'none'; form-action 'none'")
 CSS_PLACEHOLDER = f"atlas-kit:{KIT_VERSION}.css"
 JS_PLACEHOLDER = f"atlas-kit:{KIT_VERSION}.js"
 
@@ -234,12 +235,34 @@ def _vega_errors(value) -> list[str]:
     return []
 
 
+def _narration_errors(m: dict) -> list[str]:
+    frames = m.get("frames")
+    if not isinstance(frames, list) or not 1 <= len(frames) <= 500:
+        return ["narration needs 1–500 frames"]
+    for i, f in enumerate(frames):
+        if not isinstance(f, dict):
+            return [f"narration frame {i + 1} is not an object"]
+        text, audio = f.get("text"), f.get("audio")
+        if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+            return [f"narration frame {i + 1} needs text (1–2000 characters)"]
+        if not isinstance(audio, str) or not audio.startswith("data:audio/"):
+            return [f"narration frame {i + 1} needs an inline audio clip (data:audio/…)"]
+        ms = f.get("ms")
+        if ms is not None and (type(ms) not in (int, float) or not math.isfinite(ms) or ms <= 0):
+            return [f"narration frame {i + 1}: ms must be a positive number"]
+    if m.get("voice") is not None and not isinstance(m.get("voice"), str):
+        return ["narration voice must be a string"]
+    return []
+
+
 def _media_errors(m: dict) -> list[str]:
-    if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart", "scene"):
-        return ["not a baked asset (`kind` must be `anim`, `chart` or `scene`); run `atlas-explainer bake`"]
+    if not isinstance(m, dict) or m.get("kind") not in ("anim", "chart", "scene", NARRATION):
+        return ["not a baked asset (`kind` must be `anim`, `chart`, `scene` or `narration`); run `atlas-explainer bake`"]
     sources = m.get("sources", {})
     if not isinstance(sources, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in sources.items()):
         return ["sources must map card-relative filenames to hashes"]
+    if m["kind"] == NARRATION:
+        return _narration_errors(m)
     if m["kind"] == "scene":
         return validate_scene(m.get("scene"))
     if m["kind"] == "anim":
@@ -286,6 +309,8 @@ def load_media(card: Path) -> tuple[dict[str, dict], list[str]]:
         return out, errors
     page = card / "index.html"
     names = set(media_refs(page.read_text("utf-8"))) if page.is_file() else set()
+    if (d / f"{NARRATION}.json").is_file():
+        names.add(NARRATION)             # narration is a card-level track, not a tag on the page
     # Only referenced names are required manifests. Other JSON files may be authored chart data.
     for name in sorted(names):
         try:
@@ -331,7 +356,10 @@ def _data_uri(path: Path) -> str:
 def inline_media(card: Path, media: dict[str, dict], names) -> dict[str, dict]:
     """The manifests as the page carries them: the sprite sheet becomes a data URI, nothing points at a file."""
     out: dict[str, dict] = {}
-    for name in sorted(set(names)):
+    wanted = set(names)
+    if NARRATION in media:
+        wanted.add(NARRATION)
+    for name in sorted(wanted):
         m = copy.deepcopy(media[name])
         if m["kind"] == "anim":
             sheet = sheet_path(card, m)
@@ -352,7 +380,7 @@ def lint_media(card: Path, scan: _Scan) -> list[str]:
     problems: list[str] = []
     media, errors = load_media(card)
     problems += errors
-    if not scan.media:
+    if not scan.media and NARRATION not in media:
         return problems
     for tag, line, name in scan.media:
         m = media.get(name)
@@ -371,6 +399,11 @@ def lint_media(card: Path, scan: _Scan) -> list[str]:
             problems.append(f"media/{name}.json: stale — {', '.join(changed[:3])} changed after the last bake; "
                             "run `atlas-explainer bake`")
     used = {name for _, _, name in scan.media if name in media}
+    if NARRATION in media:
+        used.add(NARRATION)
+        changed = _stale(card, media[NARRATION])
+        if changed:
+            problems.append("media/narration.json: stale - re-run the narration step")
     size = sum(media_size(card, media[n]) for n in used)
     if any(media[n].get("vega") for n in used):
         size += sum(p.stat().st_size for p in RUNTIME + LICENSES if p.is_file())
