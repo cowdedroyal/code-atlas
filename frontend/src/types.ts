@@ -24,7 +24,7 @@ export interface Relation {
 }
 
 export interface TourStep {
-  at: string; ref: NodeRef; text: string; box: Box; hops: [number, number][]; from?: number; via_relation?: string; state?: string;
+  at: string; ref: NodeRef; text: string; box: Box; hops: [number, number][]; from?: number; via_relation?: string; card?: string; state?: string;
 }
 
 export interface Tour { id: string; title: string; summary?: string; steps: TourStep[]; state?: string }

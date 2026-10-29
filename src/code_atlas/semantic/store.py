@@ -127,7 +127,7 @@ def save(repo: Path, sem: Semantic) -> None:
                 f.unlink()
         for tid, t in sem.tours.items():
             body = {k: t[k] for k in ("id", "title", "summary", "run", "at") if t.get(k) is not None}
-            body["steps"] = [{k: s[k] for k in ("at", "text", "via_relation", "anchor") if s.get(k) is not None}
+            body["steps"] = [{k: s[k] for k in ("at", "text", "via_relation", "anchor", "card") if s.get(k) is not None}
                              for s in t.get("steps", [])]
             header = "# A guided tour through the code. Written via `codeatlas apply`.\n"
             (td / f"{tid}.yaml").write_text(_dump_yaml(body, header), encoding="utf-8")

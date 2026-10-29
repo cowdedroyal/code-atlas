@@ -102,6 +102,7 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
             redge[(ca[i], cb[i])] += wgt
 
     in_deg = idx.in_deg
+    cards = load_cards(repo)
 
     graph = {
         "version": __version__,
@@ -129,9 +130,8 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
              "family": r["family"], "label": r["label"], "rationale": r["rationale"], "evidence": r["evidence"],
              **({"stale": stale[r["id"]]} if r["id"] in stale else {})}
             for r in sem.relations.values()) if rel["src"] and rel["dst"]],
-        "tours": _tours(sem, tour_status(idx, sem), boxes, r_index, f_index),
+        "tours": _tours(sem, tour_status(idx, sem, cards), boxes, r_index, f_index, cards),
     }
-    cards = load_cards(repo)
     graph["explainers"], card_pages, skipped_cards = _explainers(repo, cards, card_status(idx, sem, cards))
     # search index (name, kind, file index, id, box): its own file, fetched on first search
     search = [[s["name"], s["kind"], f_index[s["path"]], s["id"], *_round(boxes[s["id"]])] for s in syms]
@@ -239,7 +239,7 @@ def _chunk_files(regions: dict, root_id: str, syms: list[dict], boxes: dict) -> 
     return out
 
 
-def _tours(sem, status: dict, boxes: dict, r_index: dict, f_index: dict) -> list[dict]:
+def _tours(sem, status: dict, boxes: dict, r_index: dict, f_index: dict, cards: dict[str, dict]) -> list[dict]:
     """Tours with everything the player needs: each step's box, and the hop points of the call chain into it."""
     center = lambda b: [round(b[0] + b[2] / 2, 1), round(b[1] + b[3] / 2, 1)]
     out = []
@@ -259,6 +259,7 @@ def _tours(sem, status: dict, boxes: dict, r_index: dict, f_index: dict) -> list
             steps.append({"at": s["at"], "ref": ref, "text": s.get("text"), "box": _round(boxes[s["at"]]), "hops": hops,
                           **({"from": frm} if frm is not None else {}),
                           **({"via_relation": s["via_relation"]} if s.get("via_relation") else {}),
+                          **({"card": s["card"]} if s.get("card") in cards else {}),
                           **({"state": st["steps"][i]} if i < len(st.get("steps", [])) and st["steps"][i] else {})})
         if len(steps) >= 2:
             out.append({"id": tid, "title": t.get("title"), "summary": t.get("summary"), "steps": steps,

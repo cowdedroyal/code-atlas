@@ -68,6 +68,36 @@ def path(src: str, dst: str, repo: Path = RepoOpt,
                                         "relation and use it as the step's via_relation"})})
 
 
+@app.command()
+def tours(repo: Path = RepoOpt):
+    """The guided tours: each step's text, the explainer card hung on it, and whether a link is broken."""
+    from .graphdata import load_index
+    from .semantic import store
+    from .semantic.explainers import load_cards
+    from .semantic.tours import tour_status
+    idx = load_index(repo.resolve())
+    sem = store.load(repo.resolve())
+    cards = load_cards(repo.resolve())
+    status = tour_status(idx, sem, cards)
+    per_file: dict[str, int] = {}
+    for s in idx.symbols.values():
+        per_file[s["path"]] = per_file.get(s["path"], 0) + 1
+    out = []
+    for tid in sorted(sem.tours):
+        t = sem.tours[tid]
+        st = status.get(tid, {})
+        states = st.get("steps") or []
+        out.append({"id": tid, "title": t.get("title"), "summary": t.get("summary"),
+                    **({"state": st["state"]} if st.get("state") else {}),
+                    "steps": [{"at": s.get("at"), "text": s.get("text"),
+                               **({"kind": "symbol"} if "#" in (s.get("at") or "") else
+                                  {"kind": "file", "symbols": per_file.get(s.get("at"), 0)}),
+                               **({"card": s["card"], "card_ok": s["card"] in cards} if s.get("card") else {}),
+                               **({"state": states[i]} if i < len(states) and states[i] else {})}
+                              for i, s in enumerate(t.get("steps") or [])]})
+    emit({"ok": True, "tours": out, "cards": sorted(cards)})
+
+
 def _read_changeset(file: Path | None) -> dict:
     text = file.read_text("utf-8") if file and str(file) != "-" else sys.stdin.read()
     try:

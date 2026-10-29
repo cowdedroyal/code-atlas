@@ -97,14 +97,14 @@ def regions_by_file(idx: Index, sem: Semantic) -> dict[str, set[str]]:
     return out
 
 
-def check_tours(idx: Index, sem: Semantic, tour_ids, err) -> dict[str, list[list[str]]]:
+def check_tours(idx: Index, sem: Semantic, tour_ids, err, cards: dict[str, dict] | None = None) -> dict[str, list[list[str]]]:
     regions_of = regions_by_file(idx, sem)
     finder = PathFinder(idx)
-    return {tid: check_tour(idx, sem, sem.tours[tid], f"tour {tid}", err, regions_of, finder)
+    return {tid: check_tour(idx, sem, sem.tours[tid], f"tour {tid}", err, regions_of, finder, cards)
             for tid in sorted(tour_ids) if tid in sem.tours}
 
 
-def tour_status(idx: Index, sem: Semantic) -> dict[str, dict]:
+def tour_status(idx: Index, sem: Semantic, cards: dict[str, dict] | None = None) -> dict[str, dict]:
     """tour id → {"state": None | "stale" | "orphan" | "broken", "steps": [per-step state], "chains": [...]}.
 
     stale: a step's code changed since the tour was written; orphan: a step's code is gone;
@@ -125,8 +125,8 @@ def tour_status(idx: Index, sem: Semantic) -> dict[str, dict]:
                 continue
             s["at"] = node
             states.append("stale" if s.get("anchor") and s["anchor"] != idx.anchor(node) else None)
-        chains = check_tour(idx, sem, {**t, "steps": steps}, tid, lambda w, m: problems.append(m), regions_of, finder)
-        broken = any("no call path" in m or "does not connect" in m for m in problems)
+        chains = check_tour(idx, sem, {**t, "steps": steps}, tid, lambda w, m: problems.append(m), regions_of, finder, cards)
+        broken = any("no call path" in m or "does not connect" in m or "card" in m for m in problems)
         state = "orphan" if "orphan" in states else "broken" if broken else "stale" if "stale" in states else None
         out[tid] = {"state": state, "steps": states, "chains": chains, "problems": problems}
     return out
@@ -148,8 +148,16 @@ def tour_candidates(idx: Index, sem: Semantic, n: int = 5) -> list[str]:
     return cands[:n]
 
 
+def _anchor_explains(idx: Index, regions_of: dict[str, set[str]], anchor: str, node: str) -> bool:
+    """Does a card anchored at `anchor` explain `node` (a step's file or symbol) — directly or by containment?"""
+    if anchor.startswith(REGION_PREFIX):
+        return anchor in regions_of.get(file_of(node), set())
+    a = idx.canonical(anchor)
+    return a == node or a.startswith(node + "#") or node.startswith(a + "#")
+
+
 def check_tour(idx: Index, sem: Semantic, tour: dict, where: str, err, regions_of: dict[str, set[str]],
-               finder: PathFinder) -> list[list[str]]:
+               finder: PathFinder, cards: dict[str, dict] | None = None) -> list[list[str]]:
     """Report problems through err(where, msg); → the hop chain between each pair of steps."""
     for k in ("title", "summary"):
         v = tour.get(k)
@@ -176,6 +184,18 @@ def check_tour(idx: Index, sem: Semantic, tour: dict, where: str, err, regions_o
             err(w, "`text` is required: say what happens here and why it matters")
         elif len(text) > LIMITS["text"]:
             err(w, f"`text` is {len(text)} chars, limit {LIMITS['text']}")
+        card_id = s.get("card")
+        if card_id is not None:
+            if not isinstance(card_id, str) or not card_id.strip():
+                err(w, "`card` must be an explainer card id")
+            elif cards is not None:
+                if card_id not in cards:
+                    err(w, f"card {card_id!r} does not exist — write it first with `codeatlas card apply`")
+                else:
+                    anchors = cards[card_id].get("anchors") or []
+                    if not any(_anchor_explains(idx, regions_of, a, at) for a in anchors):
+                        err(w, f"card {card_id!r} does not explain this step: its anchors are {anchors or 'none'}, "
+                               f"but the step is {at} — anchor the card on the step's symbol (or on the file that holds it)")
         # earlier steps, nearest first: a flow often returns to an orchestrator before the next call
         earlier = [x["at"] for x in reversed(steps[:i]) if isinstance(x, dict) and idx.exists(x.get("at", ""))]
         if i == 0 or not earlier:

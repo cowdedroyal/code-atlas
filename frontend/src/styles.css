@@ -175,6 +175,8 @@ html, body, #root { margin: 0; height: 100%; background: var(--surface); color: 
 .tour-head .close { margin-left: auto; border: 0; background: none; font-size: 18px; color: var(--text-muted); cursor: pointer; }
 .tour-where { margin-top: 4px; color: var(--text-secondary); }
 .tour-text { margin: 6px 0 10px; font-size: 14px; line-height: 1.55; }
+.tour-card { margin: -2px 0 8px; }
+.tour-card button { font-weight: 600; }
 .tour-nav { display: flex; align-items: center; gap: 10px; }
 .tour-nav button:disabled { opacity: .35; cursor: default; }
 .tour-dots { display: flex; gap: 5px; flex: 1; justify-content: center; flex-wrap: wrap; }

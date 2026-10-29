@@ -31,7 +31,8 @@ export function TourMenu({ graph, start }: { graph: Graph; start: (i: number) =>
   );
 }
 
-export function TourBar({ tour, step, go, exit }: { tour: Tour; step: number; go: (s: number) => void; exit: () => void }) {
+export function TourBar({ tour, step, go, exit, openCard }: { tour: Tour; step: number; go: (s: number) => void;
+                                                          exit: () => void; openCard: (id: string) => void }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -53,6 +54,7 @@ export function TourBar({ tour, step, go, exit }: { tour: Tour; step: number; go
       </div>
       <div className="tour-where mono">{where}{s.state && <span className="badge warn">{t(STATE_KEY[s.state] ?? "stale")}</span>}</div>
       {s.text && <div className="tour-text"><Markdown text={s.text} /></div>}
+      {s.card && <div className="tour-card"><button className="fit" onClick={() => openCard(s.card!)}>▶ {t("explainStep")}</button></div>}
       <div className="tour-nav">
         <button className="fit" disabled={step === 0} onClick={() => go(step - 1)}>← {t("prev")}</button>
         <div className="tour-dots">

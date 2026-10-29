@@ -45,6 +45,10 @@ it with `show` and `codeatlas path <a> <b>`, pick the 4–10 stops where somethi
 one tour per changeset ([tours.md](tours.md)). If two stops are linked only over HTTP/queues/files, add the
 relation first (same or earlier changeset) and reference it with `via_relation`.
 
+When a step needs more than a sentence, hang a step card on it: apply the card first (`card apply`), then add
+`card: <id>` to that step; `validate` checks that one of the card's anchors covers the step. `codeatlas tours`
+lists every step with its card, so gaps are visible before a reader hits them.
+
 ## refresh
 
 Run `scan` first, then `agenda --type refresh`. For each stale note or relation, read its target and

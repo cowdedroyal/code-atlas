@@ -22,6 +22,7 @@ import hashlib
 import json
 import re
 import time
+from collections import defaultdict
 from pathlib import Path
 
 from ..graphdata import Index, load_index
@@ -29,6 +30,7 @@ from ..index import cache_dir
 from . import store
 from .regions import compile_glob, match_rules
 from .store import FAMILIES, REGION_PREFIX, ROLES, Semantic
+from .explainers import load_cards
 from .tours import check_tours
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
@@ -49,6 +51,7 @@ class Checker:
         self.warnings: list[str] = []
         self.touched_tours: set[str] = set()
         self.chains: dict[str, list[list[str]]] = {}
+        self.cards: dict[str, dict] = {}
 
     def err(self, where: str, msg: str):
         self.errors.append(f"{where}: {msg}")
@@ -238,7 +241,7 @@ def _apply_ops(ck: Checker, cs: dict) -> dict:
             if sem.tours.pop(tid, None) is None:
                 ck.err(w, f"no tour {tid}")
         elif op == "upsert":
-            steps = [{k: s.get(k) for k in ("at", "text", "via_relation") if s.get(k) is not None}
+            steps = [{k: s.get(k) for k in ("at", "text", "via_relation", "card") if s.get(k) is not None}
                      if isinstance(s, dict) else s for s in (t.get("steps") or [])]
             sem.tours[tid] = {"id": tid, "title": t.get("title"), "summary": t.get("summary"), "steps": steps}
             ck.touched_tours.add(tid)
@@ -254,6 +257,31 @@ def _apply_ops(ck: Checker, cs: dict) -> dict:
             continue
         counts["tours"] += 1
     return counts
+
+
+def _granularity_warnings(idx: Index, sem: Semantic, tour_ids, warnings: list[str]) -> None:
+    """A step that stops at a file, or whose text lists several actions, is usually not one step yet."""
+    per_file: dict[str, int] = defaultdict(int)
+    for s in idx.symbols.values():
+        per_file[s["path"]] += 1
+    for tid in sorted(tour_ids):
+        t = sem.tours.get(tid) or {}
+        steps = t.get("steps") or []
+        symbol_files = {(s.get("at") or "").split("#", 1)[0] for s in steps if isinstance(s, dict) and "#" in (s.get("at") or "")}
+        for i, s in enumerate(steps):
+            if not isinstance(s, dict):
+                continue
+            at = idx.canonical(s.get("at", ""))
+            if not idx.exists(at):
+                continue
+            w = f"tour {tid}.steps[{i}]"
+            if "#" not in at and at not in symbol_files and per_file.get(at, 0) >= 3 and not idx.mapped.get(at, {}).get("entry"):
+                warnings.append(f"{w}: stops at a file with {per_file[at]} symbols — split it into the functions where "
+                                f"state changes (`codeatlas show {at}`)")
+            text = s.get("text") or ""
+            hits = [m for m in ("；", ";", "并且", "同时", "然后") if m in text]
+            if hits:
+                warnings.append(f"{w}: text contains {'/'.join(hits)} — one step should be one action; split it")
 
 
 def _check_state(ck: Checker) -> dict:
@@ -289,7 +317,8 @@ def _check_state(ck: Checker) -> dict:
             if not ck.node_exists(end):
                 ck.err(f"relation {rid}", f"end {end!r} does not exist")
     if ck.touched_tours:  # only tours in this changeset must pass; broken old ones surface in `agenda`
-        ck.chains = check_tours(idx, sem, ck.touched_tours, ck.err)
+        ck.chains = check_tours(idx, sem, ck.touched_tours, ck.err, ck.cards)
+        _granularity_warnings(idx, sem, ck.touched_tours, ck.warnings)
     summary = {}
     if sem.regions:
         primary, _ = match_rules(sem.rules, paths)
@@ -314,6 +343,7 @@ def validate(repo: Path, cs: dict, idx: Index | None = None) -> tuple[dict, Sema
     if not idx.mapped:
         return {"ok": False, "errors": ["the structure index is empty — run `codeatlas scan` first"], "warnings": []}, store.load(repo), {}
     ck = Checker(idx, copy.deepcopy(store.load(repo)))
+    ck.cards = load_cards(repo)
     counts = _apply_ops(ck, cs)
     summary = _check_state(ck)
     return ({"ok": not ck.errors, "errors": ck.errors, "warnings": ck.warnings, "changes": counts, "state": summary},
@@ -366,8 +396,8 @@ def apply(repo: Path, cs: dict, run: str | None = None) -> dict:
         rel.update({"anchors": anchors, "run": run, "at": at})
     for tid, t in sem.tours.items():
         prev = old.tours.get(tid)
-        same = prev and [{k: s.get(k) for k in ("at", "text", "via_relation")} for s in prev.get("steps", [])] == \
-            [{k: s.get(k) for k in ("at", "text", "via_relation")} for s in t["steps"]] and \
+        same = prev and [{k: s.get(k) for k in ("at", "text", "via_relation", "card")} for s in prev.get("steps", [])] == \
+            [{k: s.get(k) for k in ("at", "text", "via_relation", "card")} for s in t["steps"]] and \
             (prev.get("title"), prev.get("summary")) == (t.get("title"), t.get("summary"))
         if same and (tid not in confirmed["tours"] or all(s.get("anchor") == idx.anchor(s["at"]) for s in prev["steps"])):
             sem.tours[tid] = prev

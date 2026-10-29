@@ -128,7 +128,8 @@ export default function App() {
         <button className="fit" onClick={() => { setSelection(null); setVs(fitView(root.box, size)); }}>{t("fit")}</button>
       </header>
       {activeTour && <TourBar tour={activeTour.tour} step={activeTour.step} go={(s) => goStep(tourAt!.i, s)}
-                              exit={() => setTourAt(null)} />}
+                              exit={() => setTourAt(null)}
+                              openCard={(id) => { const c = graph.explainers?.find((x) => x.id === id); if (c) setReading(c); }} />}
       <footer className="legend" style={activeTour ? { display: "none" } : undefined}>
         <div className="legend-row">
           <span className="legend-title">{t("roles")}</span>
