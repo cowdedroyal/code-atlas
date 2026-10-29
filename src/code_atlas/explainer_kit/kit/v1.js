@@ -17,13 +17,13 @@
     zh: { real: "真实数据", illustrative: "示意数据", undeclared: "未声明数据来源", from: "来自", at: "读取于",
           play: "播放", pause: "暂停", frame: "帧", next: "下一步", prev: "上一步", sceneHint: "点一下，看下一步",
           cinema: "放映", cinemaHint: "连播并朗读每一帧", exitCinema: "退出放映", replay: "重播",
-          resume: "继续", reading: "朗读中", paused: "已暂停", ended: "放映结束",
+          resume: "继续", reading: "朗读中", paused: "已暂停", ended: "放映结束", voice: "音色",
           ttsFallback: "语音不可用，按文字节奏播放", ttsBlocked: "浏览器没有可用的语音，按文字节奏播放",
           missing: "这张图没有随卡片打包（重新运行 atlas-explainer pack）" },
     en: { real: "Real data", illustrative: "Illustrative data", undeclared: "Source not declared", from: "from", at: "read",
           play: "Play", pause: "Pause", frame: "Frame", next: "Next step", prev: "Previous step", sceneHint: "Click to continue",
           cinema: "Play", cinemaHint: "Play every frame and read it aloud", exitCinema: "Exit", replay: "Replay",
-          resume: "Resume", reading: "Reading", paused: "Paused", ended: "The end",
+          resume: "Resume", reading: "Reading", paused: "Paused", ended: "The end", voice: "Voice",
           ttsFallback: "Speech is unavailable; using reading pace", ttsBlocked: "No voice is available; using reading pace",
           missing: "This picture was not packed into the card (re-run atlas-explainer pack)" }
   };
@@ -692,19 +692,63 @@
   function clampIndex(i, n) { return Math.max(0, Math.min(n - 1, i)); }
   function clean(s) { return (s || "").replace(/\s+/g, " ").trim(); }
 
+  function isNatural(v) { return /Online \(Natural\)|Natural/i.test(v.name || ""); }
+  function voiceKey(v) { return (v.name || "") + "|" + (v.lang || ""); }
+  function voiceLabel(v) {
+    var n = (v.name || "").replace(/^Microsoft\s+/, "").replace(/\s+Online \(Natural\).*$/, "").replace(/\s+-\s+.*$/, "");
+    return n + (isNatural(v) ? "（自然）" : "（本地）");
+  }
+  function langVoices(lang) {
+    var all = speech ? speech.getVoices() || [] : [];
+    var zh = (lang || "").toLowerCase().indexOf("zh") === 0;
+    var prefix = zh ? "zh" : "en";
+    var same = all.filter(function (v) { return (v.lang || "").toLowerCase().indexOf(prefix) === 0; });
+    return same.length ? same : all;
+  }
   function voiceFor(lang) {
     if (!speech) return null;
-    var all = speech.getVoices() || [];
-    if (!all.length) return null;
+    var same = langVoices(lang);
+    if (!same.length) return null;
     var zh = (lang || "").toLowerCase().indexOf("zh") === 0;
-    var same = all.filter(function (v) { return (v.lang || "").toLowerCase().indexOf(zh ? "zh" : "en") === 0; });
-    if (!same.length) same = all;
-    var prefer = ["Xiaoxiao", "Xiaoyi", "Yunxi", "Yunjian", "Huihui", "Yaoyao", "Kangkang", "Tingting", "Natural", "Google"];
+    var natural = same.filter(isNatural);
+    var exact = natural.filter(function (v) { return (v.lang || "").toLowerCase() === (zh ? "zh-cn" : "en-us"); });
+    var pool = exact.length ? exact : natural.filter(function (v) { return /^zh-cn|^en-us/i.test(v.lang || ""); });
+    if (!pool.length) pool = natural;
+    var prefer = zh
+      ? ["晓晓", "云希", "云健", "晓伊", "云扬", "云夏", "Xiaoxiao", "Yunxi", "Yunjian", "Xiaoyi", "Yunyang", "Yunxia"]
+      : ["Aria", "Jenny", "Guy", "Emma", "Brian", "Ava", "Andrew", "Natural", "Google"];
     for (var p = 0; p < prefer.length; p++) {
-      for (var i = 0; i < same.length; i++) if ((same[i].name || "").indexOf(prefer[p]) >= 0) return same[i];
+      for (var i = 0; i < pool.length; i++) if ((pool[i].name || "").indexOf(prefer[p]) >= 0) return pool[i];
     }
-    for (var j = 0; j < same.length; j++) if (same[j].localService) return same[j];
-    return same[0];
+    if (pool.length) return pool[0];
+    var local = same.filter(function (v) { return v.localService && (!zh || /^zh-cn/i.test(v.lang || "")); });
+    return local[0] || same[0];
+  }
+  function voiceOptions(lang) {
+    var all = langVoices(lang), seen = {}, out = [];
+    all.forEach(function (v) {
+      var k = voiceKey(v);
+      if (!seen[k]) { seen[k] = 1; out.push(v); }
+    });
+    out.sort(function (a, b) {
+      var an = isNatural(a) ? 0 : 1, bn = isNatural(b) ? 0 : 1;
+      if (an !== bn) return an - bn;
+      return (a.lang || "").localeCompare(b.lang || "");
+    });
+    return out;
+  }
+  function whenVoices(cb) {
+    if (!speech) return cb();
+    if ((speech.getVoices() || []).length) return cb();
+    var done = false;
+    function fire() {
+      if (done) return;
+      done = true;
+      try { speech.removeEventListener("voiceschanged", fire); } catch (e) { /* older engine */ }
+      cb();
+    }
+    try { speech.addEventListener("voiceschanged", fire); } catch (e) { /* older engine */ }
+    window.setTimeout(fire, 1500);
   }
   var cinemaVoice = voiceFor(root.getAttribute("lang"));
   if (speech && typeof speech.addEventListener === "function") {
@@ -799,6 +843,9 @@
     var next = el("button", "ex-cinema-next", "→");
     next.type = "button";
     next.setAttribute("aria-label", t("next"));
+    var voice = el("select", "ex-cinema-voice");
+    voice.setAttribute("aria-label", t("voice"));
+    voice.title = t("voice");
     var track = el("div", "ex-cinema-track");
     var fill = el("i");
     track.appendChild(fill);
@@ -807,6 +854,7 @@
     bar.appendChild(prev);
     bar.appendChild(toggle);
     bar.appendChild(next);
+    bar.appendChild(voice);
     bar.appendChild(track);
     bar.appendChild(status);
 
@@ -816,7 +864,24 @@
     shell.appendChild(bar);
     rootEl.appendChild(shell);
     return { root: rootEl, stage: stage, count: count, exit: exit, capB: capB, capS: capS,
-             prev: prev, toggle: toggle, next: next, fill: fill, status: status };
+             prev: prev, toggle: toggle, next: next, voice: voice, fill: fill, status: status };
+  }
+
+  function fillVoiceSelect(select, chosen) {
+    if (!select) return;
+    var opts = voiceOptions(root.getAttribute("lang"));
+    var natural = opts.filter(isNatural);
+    select.textContent = "";
+    if (narrationFor() && !natural.length) { select.style.display = "none"; return; }
+    if (opts.length < 2) { select.style.display = "none"; return; }
+    select.style.display = "";
+    opts.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = voiceKey(v);
+      o.textContent = voiceLabel(v);
+      if (chosen && voiceKey(chosen) === o.value) o.selected = true;
+      select.appendChild(o);
+    });
   }
 
   function enterCinema(frames) {
@@ -833,11 +898,23 @@
     document.body.classList.add("ex-cinema-on");
     cinema = { frames: frames, fig: fig, placeholder: placeholder, ui: ui,
                index: 0, playing: false, finished: false, token: 0,
-               timer: 0, watch: 0, broken: false, voice: cinemaVoice, audio: null };
+               timer: 0, watch: 0, broken: false, voice: cinemaVoice, live: false, audio: null };
     ui.exit.addEventListener("click", exitCinema);
     ui.toggle.addEventListener("click", function () { if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); } });
     ui.prev.addEventListener("click", function () { jumpCinema(-1); });
     ui.next.addEventListener("click", function () { jumpCinema(1); });
+    ui.voice.addEventListener("change", function () {
+      if (!cinema) return;
+      var opts = voiceOptions(root.getAttribute("lang"));
+      var picked = null;
+      for (var i = 0; i < opts.length; i++) {
+        if (voiceKey(opts[i]) === ui.voice.value) picked = opts[i];
+      }
+      if (!picked) return;
+      cinema.voice = picked;
+      cinema.live = true;
+      if (cinema.playing) speakFrame(cinema.index);
+    });
     ui.stage.addEventListener("click", function (e) {
       if (e.target && e.target.closest && e.target.closest("button")) return;
       if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); }
@@ -845,8 +922,14 @@
     showFrame(0);
     updateToggle();
     ui.status.textContent = t("cinemaHint");
+    fillVoiceSelect(ui.voice, cinema.voice);
     post({ type: "atlas:cinema", action: "enter" });
-    window.setTimeout(function () { if (cinema && !cinema.playing) playCinema(); }, 260);
+    whenVoices(function () {
+      if (!cinema) return;
+      if (!cinema.voice) cinema.voice = voiceFor(root.getAttribute("lang"));
+      fillVoiceSelect(ui.voice, cinema.voice);
+      window.setTimeout(function () { if (cinema && !cinema.playing) playCinema(); }, 120);
+    });
   }
 
   function exitCinema() {
@@ -975,6 +1058,8 @@
       cinema.timer = window.setTimeout(function () { if (cinema && cinema.playing && cinema.token === token) scheduleNext(token); }, 1400);
       return;
     }
+    var live = cinema.voice || voiceFor(root.getAttribute("lang"));
+    if (live && (cinema.live || isNatural(live)) && !cinema.broken) { speakWithVoice(token, sentence); return; }
     var n = narrationFor();
     var track = n && n.frames ? n.frames[i] : null;
     if (track && track.audio) { playNarration(token, track, sentence); return; }
@@ -1017,6 +1102,14 @@
     }, Math.max(10000, sentence.length * 350 + 8000));
   }
 
+  function afterSpeechFailure(token, sentence) {
+    if (!cinema || cinema.token !== token) return;
+    var n = narrationFor();
+    var track = n && n.frames ? n.frames[cinema.index] : null;
+    if (track && track.audio) { playNarration(token, track, sentence); return; }
+    fallbackSpeech(token, sentence);
+  }
+
   function speakWithVoice(token, sentence) {
     if (!cinema || cinema.token !== token) return;
     var u = new window.SpeechSynthesisUtterance(sentence);
@@ -1032,7 +1125,7 @@
       cinema.ui.status.textContent = t("reading") + (u.voice ? " · " + u.voice.name : "");
       window.clearTimeout(cinema.watch);
       cinema.watch = window.setTimeout(function () {
-        if (cinema && cinema.playing && cinema.token === token) { cinema.broken = true; fallbackSpeech(token, sentence); }
+        if (cinema && cinema.playing && cinema.token === token) { cinema.broken = true; afterSpeechFailure(token, sentence); }
       }, 20000 + sentence.length * 200);
     };
     u.onend = function () {
@@ -1047,16 +1140,16 @@
       var why = ev && ev.error ? ev.error : "error";
       if (why !== "interrupted" && why !== "canceled") {
         cinema.broken = true;
-        fallbackSpeech(token, sentence);
+        afterSpeechFailure(token, sentence);
       }
     };
     cinema.watch = window.setTimeout(function () {
       if (!started && cinema && cinema.playing && cinema.token === token) {
         cinema.broken = true;
-        fallbackSpeech(token, sentence);
+        afterSpeechFailure(token, sentence);
       }
     }, 4000);
-    try { speech.speak(u); } catch (e) { cinema.broken = true; fallbackSpeech(token, sentence); }
+    try { speech.speak(u); } catch (e) { cinema.broken = true; afterSpeechFailure(token, sentence); }
   }
 
   function installCinema() {

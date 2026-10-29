@@ -343,6 +343,11 @@ body.ex-cinema-on { overflow: hidden !important; }
   font: 600 .84rem/1.5 var(--ex-sans); color: var(--ex-fg);
 }
 .ex-cinema-toggle { min-width: 7.2rem; border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-voice {
+  flex: none; max-width: 11rem; height: 2rem; padding: 0 .4rem; border: 1px solid var(--ex-line); border-radius: 6px;
+  background: var(--ex-bg); color: var(--ex-fg); font: .8rem var(--ex-sans); cursor: pointer;
+}
+.ex-cinema-voice:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
 .ex-cinema-prev:hover:not(:disabled), .ex-cinema-next:hover:not(:disabled) { border-color: var(--ex-accent); color: var(--ex-accent); }
 .ex-cinema-prev:disabled, .ex-cinema-next:disabled { opacity: .35; cursor: default; }
 .ex-cinema-prev:focus-visible, .ex-cinema-next:focus-visible, .ex-cinema-toggle:focus-visible {
