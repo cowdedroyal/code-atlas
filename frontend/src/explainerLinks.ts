@@ -36,7 +36,9 @@ export function selectionForId(graph: Pick<Graph, "regions" | "files">, id: stri
 export type CardMessage =
   | { type: "atlas:ready"; kit: number }
   | { type: "atlas:height"; height: number }
-  | { type: "atlas:open"; target: string };
+  | { type: "atlas:open"; target: string }
+  | { type: "atlas:cinema"; action: "enter" | "exit" }
+  | { type: "atlas:playback"; available: boolean; frames: number };
 
 export function parseCardMessage(data: unknown): CardMessage | null {
   if (!data || typeof data !== "object") return null;
@@ -45,5 +47,8 @@ export function parseCardMessage(data: unknown): CardMessage | null {
   if (d.type === "atlas:height" && typeof d.height === "number" && Number.isFinite(d.height))
     return { type: d.type, height: Math.max(0, Math.min(20000, Math.round(d.height))) };
   if (d.type === "atlas:open" && typeof d.target === "string" && d.target.length < 400) return { type: d.type, target: d.target };
+  if (d.type === "atlas:cinema" && (d.action === "enter" || d.action === "exit")) return { type: d.type, action: d.action };
+  if (d.type === "atlas:playback" && typeof d.available === "boolean" && typeof d.frames === "number")
+    return { type: d.type, available: d.available, frames: Math.max(0, Math.round(d.frames)) };
   return null;
 }

@@ -16,9 +16,15 @@
   var I18N = {
     zh: { real: "真实数据", illustrative: "示意数据", undeclared: "未声明数据来源", from: "来自", at: "读取于",
           play: "播放", pause: "暂停", frame: "帧", next: "下一步", prev: "上一步", sceneHint: "点一下，看下一步",
+          cinema: "放映", cinemaHint: "连播并朗读每一帧", exitCinema: "退出放映", replay: "重播",
+          resume: "继续", reading: "朗读中", paused: "已暂停", ended: "放映结束",
+          ttsFallback: "语音不可用，按文字节奏播放", ttsBlocked: "浏览器没有可用的语音，按文字节奏播放",
           missing: "这张图没有随卡片打包（重新运行 atlas-explainer pack）" },
     en: { real: "Real data", illustrative: "Illustrative data", undeclared: "Source not declared", from: "from", at: "read",
           play: "Play", pause: "Pause", frame: "Frame", next: "Next step", prev: "Previous step", sceneHint: "Click to continue",
+          cinema: "Play", cinemaHint: "Play every frame and read it aloud", exitCinema: "Exit", replay: "Replay",
+          resume: "Resume", reading: "Reading", paused: "Paused", ended: "The end",
+          ttsFallback: "Speech is unavailable; using reading pace", ttsBlocked: "No voice is available; using reading pace",
           missing: "This picture was not packed into the card (re-run atlas-explainer pack)" }
   };
   function t(key) {
@@ -35,7 +41,9 @@
   /* ---- host messages ---------------------------------------------------- */
   window.addEventListener("message", function (e) {
     var d = e.data;
-    if (!d || d.type !== "atlas:theme") return;
+    if (!d) return;
+    if (d.type === "atlas:cinema" && d.on === false && cinema) { exitCinema(); return; }
+    if (d.type !== "atlas:theme") return;
     var was = root.getAttribute("data-theme");
     if (d.theme === "light" || d.theme === "dark") root.setAttribute("data-theme", d.theme);
     if (was !== d.theme) refreshCharts();
@@ -551,6 +559,15 @@
       else if (e.key === "ArrowLeft") { e.preventDefault(); show(current - 1); }
     });
     show(0);
+    node.__scene = {
+      el: node,
+      count: scene.steps.length,
+      go: show,
+      text: function (i) {
+        var st = scene.steps[i] || {};
+        return { title: st.title || "", detail: st.detail || "" };
+      }
+    };
   }
 
 
@@ -665,6 +682,342 @@
   }
 
 
+  /* ---- screening: play the card frame by frame, reading each caption aloud ----
+   * A stepper's radio frames and an <ex-scene>'s steps are both playable. The card speaks the caption with the
+   * browser's speech synthesis, waits for the sentence to end, then moves to the next frame. When the browser has
+   * no voice (or refuses to speak), a reading-pace timer keeps the screening running instead of stalling. */
+  var cinema = null;
+  var speech = typeof window.speechSynthesis !== "undefined" ? window.speechSynthesis : null;
+
+  function clampIndex(i, n) { return Math.max(0, Math.min(n - 1, i)); }
+  function clean(s) { return (s || "").replace(/\s+/g, " ").trim(); }
+
+  function voiceFor(lang) {
+    if (!speech) return null;
+    var all = speech.getVoices() || [];
+    if (!all.length) return null;
+    var zh = (lang || "").toLowerCase().indexOf("zh") === 0;
+    var same = all.filter(function (v) { return (v.lang || "").toLowerCase().indexOf(zh ? "zh" : "en") === 0; });
+    if (!same.length) same = all;
+    var prefer = ["Xiaoxiao", "Xiaoyi", "Yunxi", "Yunjian", "Huihui", "Yaoyao", "Kangkang", "Tingting", "Natural", "Google"];
+    for (var p = 0; p < prefer.length; p++) {
+      for (var i = 0; i < same.length; i++) if ((same[i].name || "").indexOf(prefer[p]) >= 0) return same[i];
+    }
+    for (var j = 0; j < same.length; j++) if (same[j].localService) return same[j];
+    return same[0];
+  }
+  var cinemaVoice = voiceFor(root.getAttribute("lang"));
+  if (speech && typeof speech.addEventListener === "function") {
+    speech.addEventListener("voiceschanged", function () { if (!cinemaVoice) cinemaVoice = voiceFor(root.getAttribute("lang")); });
+  }
+
+  function stepperFrames() {
+    var figs = document.querySelectorAll("figure.stepper");
+    for (var f = 0; f < figs.length; f++) {
+      var radios = figs[f].querySelectorAll('input.st[type="radio"]');
+      if (radios.length < 2) continue;
+      var caps = figs[f].querySelectorAll(".caps .cap");
+      if (!caps.length) caps = figs[f].querySelectorAll(".cap");
+      var fig = figs[f];
+      return {
+        el: fig,
+        count: radios.length,
+        go: function (i) {
+          var r = radios[clampIndex(i, radios.length)];
+          if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event("change", { bubbles: true })); }
+        },
+        text: function (i) {
+          var cap = caps[i];
+          if (!cap) return { title: "", detail: "" };
+          var b = cap.querySelector("b"), s = cap.querySelector("span");
+          return { title: clean(b ? b.textContent : cap.textContent), detail: clean(s ? s.textContent : "") };
+        }
+      };
+    }
+    return null;
+  }
+
+  function sceneFrames() {
+    var nodes = document.querySelectorAll("ex-scene");
+    for (var i = 0; i < nodes.length; i++) if (nodes[i].__scene && nodes[i].__scene.count > 1) return nodes[i].__scene;
+    return null;
+  }
+
+  function cinemaUi(frames, title) {
+    var rootEl = el("div", "ex-cinema");
+    rootEl.setAttribute("role", "dialog");
+    rootEl.setAttribute("aria-modal", "true");
+    rootEl.setAttribute("aria-label", title);
+    var shell = el("div", "ex-cinema-shell");
+    var head = el("header", "ex-cinema-head");
+    var h = el("h2", "ex-cinema-title", title);
+    var count = el("div", "ex-cinema-count");
+    count.setAttribute("aria-live", "off");
+    var exit = el("button", "ex-cinema-exit", "×");
+    exit.type = "button";
+    exit.setAttribute("aria-label", t("exitCinema"));
+    head.appendChild(el("div", "ex-cinema-kicker", t("cinema")));
+    head.appendChild(h);
+    head.appendChild(count);
+    head.appendChild(exit);
+
+    var main = el("div", "ex-cinema-main");
+    var stage = el("div", "ex-cinema-stage");
+    main.appendChild(stage);
+
+    var cap = el("div", "ex-cinema-caption");
+    cap.setAttribute("aria-live", "polite");
+    var capB = el("b"), capS = el("span");
+    cap.appendChild(capB);
+    cap.appendChild(capS);
+
+    var bar = el("footer", "ex-cinema-bar");
+    var prev = el("button", "ex-cinema-prev", "←");
+    prev.type = "button";
+    prev.setAttribute("aria-label", t("prev"));
+    var toggle = el("button", "ex-cinema-toggle");
+    toggle.type = "button";
+    var next = el("button", "ex-cinema-next", "→");
+    next.type = "button";
+    next.setAttribute("aria-label", t("next"));
+    var track = el("div", "ex-cinema-track");
+    var fill = el("i");
+    track.appendChild(fill);
+    var status = el("div", "ex-cinema-status");
+    status.setAttribute("aria-live", "polite");
+    bar.appendChild(prev);
+    bar.appendChild(toggle);
+    bar.appendChild(next);
+    bar.appendChild(track);
+    bar.appendChild(status);
+
+    shell.appendChild(head);
+    shell.appendChild(main);
+    shell.appendChild(cap);
+    shell.appendChild(bar);
+    rootEl.appendChild(shell);
+    return { root: rootEl, stage: stage, count: count, exit: exit, capB: capB, capS: capS,
+             prev: prev, toggle: toggle, next: next, fill: fill, status: status };
+  }
+
+  function enterCinema(frames) {
+    if (cinema) return;
+    var fig = frames.el;
+    var placeholder = document.createComment("atlas-cinema");
+    fig.parentNode.insertBefore(placeholder, fig);
+    var titleEl = document.querySelector("h1");
+    var title = clean(titleEl ? titleEl.textContent : document.title) || document.title || t("cinema");
+    var ui = cinemaUi(frames, title);
+    fig.classList.add("ex-cinema-figure");
+    ui.stage.appendChild(fig);
+    document.body.appendChild(ui.root);
+    document.body.classList.add("ex-cinema-on");
+    cinema = { frames: frames, fig: fig, placeholder: placeholder, ui: ui,
+               index: 0, playing: false, finished: false, token: 0,
+               timer: 0, watch: 0, broken: false, voice: cinemaVoice };
+    ui.exit.addEventListener("click", exitCinema);
+    ui.toggle.addEventListener("click", function () { if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); } });
+    ui.prev.addEventListener("click", function () { jumpCinema(-1); });
+    ui.next.addEventListener("click", function () { jumpCinema(1); });
+    ui.stage.addEventListener("click", function (e) {
+      if (e.target && e.target.closest && e.target.closest("button")) return;
+      if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); }
+    });
+    showFrame(0);
+    updateToggle();
+    ui.status.textContent = t("cinemaHint");
+    post({ type: "atlas:cinema", action: "enter" });
+    window.setTimeout(function () { if (cinema && !cinema.playing) playCinema(); }, 260);
+  }
+
+  function exitCinema() {
+    if (!cinema) return;
+    var c = cinema;
+    stopSpeech();
+    c.fig.classList.remove("ex-cinema-figure");
+    if (c.placeholder.parentNode) c.placeholder.parentNode.replaceChild(c.fig, c.placeholder);
+    if (c.ui.root.parentNode) c.ui.root.parentNode.removeChild(c.ui.root);
+    document.body.classList.remove("ex-cinema-on");
+    cinema = null;
+    post({ type: "atlas:cinema", action: "exit" });
+  }
+
+  function updateToggle() {
+    if (!cinema) return;
+    var label = cinema.playing ? "❚❚ " + t("pause")
+      : cinema.finished ? "↻ " + t("replay")
+      : cinema.index > 0 ? "▶ " + t("resume") : "▶ " + t("play");
+    cinema.ui.toggle.textContent = label;
+    cinema.ui.toggle.setAttribute("aria-pressed", cinema.playing ? "true" : "false");
+  }
+
+  function showFrame(i) {
+    if (!cinema) return;
+    var f = cinema.frames, n = f.count;
+    cinema.index = clampIndex(i, n);
+    f.go(cinema.index);
+    var text = f.text(cinema.index);
+    cinema.ui.capB.textContent = text.title;
+    cinema.ui.capS.textContent = text.detail;
+    cinema.ui.capB.style.display = text.title ? "" : "none";
+    cinema.ui.capS.style.display = text.detail ? "" : "none";
+    cinema.ui.count.textContent = (cinema.index + 1) + " / " + n;
+    cinema.ui.fill.style.width = ((cinema.index + 1) / n * 100).toFixed(2) + "%";
+    cinema.ui.prev.disabled = cinema.index === 0;
+    cinema.ui.next.disabled = cinema.index === n - 1;
+    if (cinema.playing) speakFrame(cinema.index);
+  }
+
+  function playCinema() {
+    if (!cinema) return;
+    if (cinema.finished) { cinema.finished = false; cinema.index = 0; }
+    cinema.playing = true;
+    updateToggle();
+    showFrame(cinema.index);
+  }
+
+  function pauseCinema() {
+    if (!cinema) return;
+    cinema.playing = false;
+    stopSpeech();
+    updateToggle();
+    cinema.ui.status.textContent = t("paused");
+  }
+
+  function finishCinema() {
+    if (!cinema) return;
+    cinema.playing = false;
+    cinema.finished = true;
+    stopSpeech();
+    updateToggle();
+    cinema.ui.status.textContent = t("ended");
+  }
+
+  function jumpCinema(d) {
+    if (!cinema) return;
+    var i = cinema.index + d;
+    if (i < 0 || i >= cinema.frames.count) return;
+    cinema.finished = false;
+    showFrame(i);
+    if (!cinema.playing) updateToggle();
+  }
+
+  function stopSpeech() {
+    if (!cinema) return;
+    cinema.token++;
+    window.clearTimeout(cinema.timer);
+    window.clearTimeout(cinema.watch);
+    cinema.timer = 0;
+    cinema.watch = 0;
+    if (speech) { try { speech.cancel(); } catch (e) { /* no synth after all */ } }
+  }
+
+  function scheduleNext(token) {
+    if (!cinema || cinema.token !== token || !cinema.playing) return;
+    window.clearTimeout(cinema.timer);
+    cinema.timer = window.setTimeout(function () {
+      if (!cinema || cinema.token !== token || !cinema.playing) return;
+      if (cinema.index + 1 >= cinema.frames.count) finishCinema();
+      else showFrame(cinema.index + 1);
+    }, 420);
+  }
+
+  function fallbackSpeech(token, sentence) {
+    if (!cinema || cinema.token !== token) return;
+    window.clearTimeout(cinema.watch);
+    var chars = sentence.replace(/\s+/g, "").length;
+    var ms = Math.max(2400, Math.min(20000, chars * 210));
+    cinema.ui.status.textContent = speech ? t("ttsFallback") : t("ttsBlocked");
+    window.clearTimeout(cinema.timer);
+    cinema.timer = window.setTimeout(function () {
+      if (cinema && cinema.playing && cinema.token === token) scheduleNext(token);
+    }, ms);
+  }
+
+  function speakFrame(i) {
+    if (!cinema || !cinema.playing) return;
+    stopSpeech();
+    var token = ++cinema.token;
+    var text = cinema.frames.text(i);
+    var sentence = clean([text.title, text.detail].filter(Boolean).join("。"));
+    cinema.ui.status.textContent = "";
+    if (!sentence) {
+      cinema.timer = window.setTimeout(function () { if (cinema && cinema.playing && cinema.token === token) scheduleNext(token); }, 1400);
+      return;
+    }
+    if (!speech || cinema.broken) { fallbackSpeech(token, sentence); return; }
+    var u = new window.SpeechSynthesisUtterance(sentence);
+    u.lang = root.getAttribute("lang") || "zh-CN";
+    var v = cinema.voice || voiceFor(u.lang);
+    if (v) { u.voice = v; cinema.voice = v; }
+    u.rate = 1;
+    u.pitch = 1;
+    var started = false;
+    u.onstart = function () {
+      if (!cinema || cinema.token !== token) return;
+      started = true;
+      cinema.ui.status.textContent = t("reading") + (u.voice ? " · " + u.voice.name : "");
+      window.clearTimeout(cinema.watch);
+      cinema.watch = window.setTimeout(function () {
+        if (cinema && cinema.playing && cinema.token === token) { cinema.broken = true; fallbackSpeech(token, sentence); }
+      }, 20000 + sentence.length * 200);
+    };
+    u.onend = function () {
+      if (!cinema || cinema.token !== token) return;
+      window.clearTimeout(cinema.watch);
+      cinema.ui.status.textContent = "";
+      scheduleNext(token);
+    };
+    u.onerror = function (ev) {
+      if (!cinema || cinema.token !== token) return;
+      window.clearTimeout(cinema.watch);
+      var why = ev && ev.error ? ev.error : "error";
+      if (why !== "interrupted" && why !== "canceled") {
+        cinema.broken = true;
+        fallbackSpeech(token, sentence);
+      }
+    };
+    cinema.watch = window.setTimeout(function () {
+      if (!started && cinema && cinema.playing && cinema.token === token) {
+        cinema.broken = true;
+        fallbackSpeech(token, sentence);
+      }
+    }, 4000);
+    try { speech.speak(u); } catch (e) { cinema.broken = true; fallbackSpeech(token, sentence); }
+  }
+
+  function installCinema() {
+    var frames = stepperFrames() || sceneFrames();
+    if (!frames || frames.count < 2) return;
+    var bar = el("div", "ex-cinema-launchbar");
+    var btn = el("button", "ex-cinema-launch");
+    btn.type = "button";
+    btn.title = t("cinemaHint");
+    btn.setAttribute("aria-label", t("cinema") + " — " + t("cinemaHint"));
+    btn.appendChild(el("span", "ex-cinema-launch-icon", "▶"));
+    btn.appendChild(el("span", null, t("cinema")));
+    btn.addEventListener("click", function () {
+      var f = stepperFrames() || sceneFrames();
+      if (f) enterCinema(f);
+    });
+    bar.appendChild(btn);
+    document.body.insertBefore(bar, document.body.firstChild);
+    post({ type: "atlas:playback", available: true, frames: frames.count });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (!cinema) return;
+    var tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (e.key === "Escape") { e.preventDefault(); exitCinema(); }
+    else if (e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      if (cinema.playing) pauseCinema(); else playCinema();
+    } else if (e.key === "ArrowRight") { e.preventDefault(); jumpCinema(1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); jumpCinema(-1); }
+  });
+
+
   function init() {
     document.querySelectorAll("ex-table").forEach(renderTable);
     document.querySelectorAll("ex-stage").forEach(renderStage);
@@ -672,6 +1025,7 @@
     document.querySelectorAll("ex-anim").forEach(renderAnim);
     document.querySelectorAll("ex-scene").forEach(renderScene);
     document.querySelectorAll("ex-chart").forEach(renderChart);
+    installCinema();
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest("a[href]");
       if (!a) return;

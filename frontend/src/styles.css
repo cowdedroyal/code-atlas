@@ -214,3 +214,11 @@ html, body, #root { margin: 0; height: 100%; background: var(--surface); color: 
 .reader-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .reader-body > .muted { padding: 18px; }
 .reader-frame { display: block; width: 100%; border: 0; }
+.reader.cinema {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; transform: none;
+  border: 0; border-radius: 0; box-shadow: none;
+}
+.reader.cinema .reader-head, .reader.cinema .reader-grip { display: none; }
+.reader.cinema .reader-body { overflow: hidden; }
+.reader.cinema .reader-frame { width: 100%; height: 100%; }
+.reader-backdrop.cinema { background: #0b0d10; }

@@ -82,6 +82,7 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   const dialog = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [cinema, setCinema] = useState(false);
   const drag = useRef<{ handle: Handle; x: number; y: number; start: Box } | null>(null);
   const language = card.language ?? graph.meta.language;
 
@@ -124,7 +125,9 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
       const msg = parseCardMessage(e.data);
       if (!msg) return;
       if (msg.type === "atlas:ready") sendTheme();
-      else if (msg.type === "atlas:height") setHeight(msg.height);
+      else if (msg.type === "atlas:height") { if (!cinema) setHeight(msg.height); }
+      else if (msg.type === "atlas:cinema") setCinema(msg.action === "enter");
+      else if (msg.type === "atlas:playback") { /* the card has its own 放映 button */ }
       else {
         const s = selectionForId(graph, msg.target);
         if (s) { navigate(s); close(); }
@@ -132,19 +135,32 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
     };
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
-  }, [graph, navigate, close, dark, language]);
+  }, [graph, navigate, close, dark, language, cinema]);
+
+  // The parent follows the card's screening mode: full viewport, no reader chrome, no scrolling.
+  useEffect(() => {
+    frame.current?.contentWindow?.postMessage({ type: "atlas:cinema", on: cinema }, "*");
+  }, [cinema, html]);
 
   useEffect(() => {
-    const on = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const on = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (cinema) {
+        frame.current?.contentWindow?.postMessage({ type: "atlas:cinema", on: false }, "*");
+        setCinema(false);
+      } else close();
+    };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [close]);
+  }, [close, cinema]);
 
   return (
-    <div className="reader-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className={`reader${box ? " sized" : ""}`} ref={dialog} role="dialog" aria-modal="true" aria-label={card.title}
-           style={box ? { left: box.x, top: box.y, width: box.w, height: box.h } : undefined}>
-        {HANDLES.map((handle) => (
+    <div className={`reader-backdrop${cinema ? " cinema" : ""}`}
+         onMouseDown={(e) => { if (e.target === e.currentTarget && !cinema) close(); }}>
+      <div className={`reader${box && !cinema ? " sized" : ""}${cinema ? " cinema" : ""}`} ref={dialog} role="dialog"
+           aria-modal="true" aria-label={card.title}
+           style={cinema ? undefined : box ? { left: box.x, top: box.y, width: box.w, height: box.h } : undefined}>
+        {!cinema && HANDLES.map((handle) => (
           <div key={handle} className={`reader-grip ${handle}`} title={t("resizeCard")}
                onPointerDown={(e) => {
                  if (e.button !== 0 || !dialog.current) return;
@@ -181,8 +197,12 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
         <div className="reader-body" ref={body}>
           {html === undefined ? <div className="muted">…</div>
             : html === null ? <div className="muted">{t("cardUnavailable")}</div>
-            : <iframe ref={frame} className="reader-frame" title={card.title} sandbox="allow-scripts" srcDoc={html}
-                      style={{ height }} onLoad={sendTheme} />}
+            : <iframe ref={frame} className="reader-frame" title={card.title} sandbox="allow-scripts" allow="autoplay" srcDoc={html}
+                      style={{ height: cinema ? "100%" : height }}
+                      onLoad={() => {
+                        sendTheme();
+                        frame.current?.contentWindow?.postMessage({ type: "atlas:cinema", on: cinema }, "*");
+                      }} />}
         </div>
       </div>
     </div>

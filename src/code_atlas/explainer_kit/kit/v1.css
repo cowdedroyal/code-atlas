@@ -235,7 +235,8 @@ ex-scene .ex-arrow-head { fill: var(--ex-muted); }
 ex-scene .ex-edge { fill: none; stroke: var(--ex-muted); stroke-width: 1.4; transition: opacity .18s ease; }
 ex-scene .ex-edge.ex-dashed { stroke-dasharray: 5 4; }
 ex-scene .ex-edge.is-hidden { opacity: 0; visibility: hidden; }
-ex-scene .ex-edge-label { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); }
+ex-scene .ex-edge-label { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); transition: opacity .18s ease; }
+ex-scene .ex-edge-label.is-hidden { opacity: 0; visibility: hidden; }
 ex-scene .ex-scene-cap { padding: .5rem .7rem .1rem; font-size: .86rem; line-height: 1.5; }
 ex-scene .ex-scene-cap b { display: block; font-weight: 650; color: var(--ex-fg); }
 ex-scene .ex-scene-cap span { color: var(--ex-muted); }
@@ -262,4 +263,101 @@ ex-scene .ex-count { font: .74rem var(--ex-mono); color: var(--ex-muted); font-v
 ex-scene .ex-missing { margin: 0; padding: .7rem; font-size: .85rem; color: var(--ex-del); background: var(--ex-del-bg); }
 @media (prefers-reduced-motion: reduce) {
   ex-scene .ex-node, ex-scene .ex-edge { transition: none; }
+}
+
+/* ---- screening mode: play the card frame by frame -------------------------- */
+.ex-cinema-launchbar { display: flex; justify-content: flex-end; padding: 0 0 .35rem; }
+.ex-cinema-launch {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: .4rem;
+  padding: .35rem .8rem .35rem .65rem; border-radius: 999px; border: 1px solid var(--ex-line);
+  background: var(--ex-bg); color: var(--ex-fg); font: 600 .82rem/1.4 var(--ex-sans);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+}
+.ex-cinema-launch:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-launch:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+.ex-cinema-launch-icon { font-size: .7rem; color: var(--ex-accent); }
+
+body.ex-cinema-on { overflow: hidden !important; }
+.ex-cinema {
+  position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column;
+  background: var(--ex-bg); color: var(--ex-fg); font-family: var(--ex-sans); overflow: hidden;
+}
+.ex-cinema-shell {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  padding: clamp(.6rem, 2vh, 1.5rem) clamp(.8rem, 3vw, 3rem); gap: .5rem;
+  box-sizing: border-box;
+}
+.ex-cinema-head { display: flex; align-items: center; gap: .9rem; flex: none; min-height: 2rem; }
+.ex-cinema-kicker {
+  flex: none; padding: .1rem .5rem; border-radius: 999px; background: var(--ex-accent-soft); color: var(--ex-accent);
+  font: 700 .68rem/1.8 var(--ex-mono); letter-spacing: .12em; text-transform: uppercase;
+}
+.ex-cinema-title {
+  flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; font: 650 clamp(.9rem, 1.5vw, 1.15rem)/1.35 var(--ex-sans);
+  color: var(--ex-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ex-cinema-count {
+  flex: none; font: .8rem/1.4 var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums;
+}
+.ex-cinema-exit {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; width: 2rem; height: 2rem; border-radius: 50%;
+  text-align: center; font: 400 1.25rem/2rem var(--ex-sans); color: var(--ex-muted);
+}
+.ex-cinema-exit:hover { background: var(--ex-surface); color: var(--ex-fg); }
+.ex-cinema-exit:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+
+.ex-cinema-main { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.ex-cinema-stage {
+  width: 100%; max-width: 72rem; max-height: 100%; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; cursor: pointer;
+}
+.ex-cinema-stage > figure, .ex-cinema-stage > ex-scene {
+  width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important;
+  border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important;
+}
+.ex-cinema-stage .stage, .ex-cinema-stage .ex-scene-stage {
+  width: 100% !important; margin: 0 !important; padding: 0 !important; border: 0 !important;
+  border-radius: 0 !important; background: transparent !important; overflow: visible !important;
+}
+.ex-cinema-stage svg { display: block; width: 100% !important; height: auto !important; max-height: 58vh; }
+.ex-cinema-stage .bar, .ex-cinema-stage .caps,
+.ex-cinema-stage .ex-scene-bar, .ex-cinema-stage .ex-scene-cap,
+.ex-cinema-stage .ex-badge { display: none !important; }
+.ex-cinema-stage .fr { animation: ex-cinema-in .28s ease-out both; }
+@keyframes ex-cinema-in { from { opacity: .35; } to { opacity: 1; } }
+
+.ex-cinema-caption {
+  flex: none; width: min(100%, 74ch); margin: 0 auto; min-height: 4.8rem; max-height: 22vh; overflow: auto;
+  padding: .65rem .95rem .7rem; border-radius: .65rem; background: var(--ex-surface); border: 1px solid var(--ex-line);
+  box-sizing: border-box;
+}
+.ex-cinema-caption b {
+  display: block; margin-bottom: .3rem; font: 650 clamp(1rem, 1.7vw, 1.25rem)/1.35 var(--ex-sans); color: var(--ex-fg);
+}
+.ex-cinema-caption span { display: block; font: 400 clamp(.9rem, 1.25vw, 1.02rem)/1.65 var(--ex-sans); color: var(--ex-muted); }
+
+.ex-cinema-bar { flex: none; display: flex; align-items: center; gap: .6rem; width: min(100%, 74ch); margin: 0 auto; padding-top: .15rem; }
+.ex-cinema-prev, .ex-cinema-next, .ex-cinema-toggle {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; text-align: center;
+  padding: .35rem .8rem; border: 1px solid var(--ex-line); border-radius: 999px; background: var(--ex-bg);
+  font: 600 .84rem/1.5 var(--ex-sans); color: var(--ex-fg);
+}
+.ex-cinema-toggle { min-width: 7.2rem; border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-prev:hover:not(:disabled), .ex-cinema-next:hover:not(:disabled) { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-prev:disabled, .ex-cinema-next:disabled { opacity: .35; cursor: default; }
+.ex-cinema-prev:focus-visible, .ex-cinema-next:focus-visible, .ex-cinema-toggle:focus-visible {
+  outline: 2px solid var(--ex-accent); outline-offset: 2px;
+}
+.ex-cinema-track { flex: 1 1 auto; height: .3rem; border-radius: 999px; background: var(--ex-line); overflow: hidden; }
+.ex-cinema-track i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ex-accent); transition: width .25s ease; }
+.ex-cinema-status { flex: none; min-width: 7rem; max-width: 14rem; text-align: right; font: .74rem/1.4 var(--ex-mono); color: var(--ex-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 720px) {
+  .ex-cinema-title { font-size: .9rem; }
+  .ex-cinema-status { display: none; }
+  .ex-cinema-caption { min-height: 5.6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-cinema-stage .fr { animation: none; }
+  .ex-cinema-track i { transition: none; }
 }
