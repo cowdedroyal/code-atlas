@@ -1055,7 +1055,7 @@
       try {
         if (speech.speaking || speech.pending || speech.paused) {
           speech.cancel();
-          if (speech.paused) speech.resume();
+          speech.resume();
         }
       } catch (e) { /* no synth after all */ }
     }
@@ -1166,7 +1166,7 @@
       if (!cinema || cinema.token !== token || !cinema.playing) return;
       window.clearTimeout(cinema.watch);
       if (attempt < 1) {
-        try { speech.cancel(); if (speech.paused) speech.resume(); } catch (e) { /* gone */ }
+        try { speech.cancel(); speech.resume(); } catch (e) { /* gone */ }
         cinema.ui.status.textContent = t("connecting");
         window.setTimeout(function () {
           if (!cinema || cinema.token !== token || !cinema.playing) return;
@@ -1213,7 +1213,7 @@
     window.setTimeout(function () {
       if (!cinema || cinema.token !== token || ended) return;
       try {
-        if (speech.paused) speech.resume();
+        speech.resume();
         if (speech.speaking || speech.pending) speech.cancel();
         speech.speak(u);
       } catch (e) {
