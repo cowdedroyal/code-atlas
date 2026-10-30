@@ -300,7 +300,7 @@ body.ex-cinema-on { overflow: hidden !important; }
   font: 700 .68rem/1.8 var(--ex-mono); letter-spacing: .12em; text-transform: uppercase;
 }
 .ex-cinema-title {
-  flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; font: 650 clamp(.9rem, 1.5vw, 1.15rem)/1.35 var(--ex-sans);
+  flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; font: 650 clamp(1rem, 1.2vw, 1.5rem)/1.35 var(--ex-sans);
   color: var(--ex-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ex-cinema-count {
@@ -315,7 +315,7 @@ body.ex-cinema-on { overflow: hidden !important; }
 
 .ex-cinema-main { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .ex-cinema-stage {
-  width: 100%; max-width: 72rem; max-height: 100%; display: flex; align-items: center; justify-content: center;
+  width: 100%; max-width: min(96vw, 2400px); max-height: 100%; display: flex; align-items: center; justify-content: center;
   overflow: hidden; cursor: pointer;
 }
 .ex-cinema-stage > figure, .ex-cinema-stage > ex-scene {
@@ -326,7 +326,7 @@ body.ex-cinema-on { overflow: hidden !important; }
   width: 100% !important; margin: 0 !important; padding: 0 !important; border: 0 !important;
   border-radius: 0 !important; background: transparent !important; overflow: visible !important;
 }
-.ex-cinema-stage svg { display: block; width: 100% !important; height: auto !important; max-height: 58vh; }
+.ex-cinema-stage svg { display: block; width: 100% !important; height: auto !important; max-height: 68vh; }
 .ex-cinema-stage .bar, .ex-cinema-stage .caps,
 .ex-cinema-stage .ex-scene-bar, .ex-cinema-stage .ex-scene-cap,
 .ex-cinema-stage .ex-badge { display: none !important; }
@@ -334,16 +334,16 @@ body.ex-cinema-on { overflow: hidden !important; }
 @keyframes ex-cinema-in { from { opacity: .35; } to { opacity: 1; } }
 
 .ex-cinema-caption {
-  flex: none; width: min(100%, 74ch); margin: 0 auto; min-height: 4.8rem; max-height: 22vh; overflow: auto;
-  padding: .65rem .95rem .7rem; border-radius: .65rem; background: var(--ex-surface); border: 1px solid var(--ex-line);
+  flex: none; width: min(94vw, 1200px); margin: 0 auto; min-height: 4.8rem; max-height: 22vh; overflow: auto;
+  padding: .7rem 1rem .75rem; border-radius: .65rem; background: var(--ex-surface); border: 1px solid var(--ex-line);
   box-sizing: border-box;
 }
 .ex-cinema-caption b {
-  display: block; margin-bottom: .3rem; font: 650 clamp(1rem, 1.7vw, 1.25rem)/1.35 var(--ex-sans); color: var(--ex-fg);
+  display: block; margin-bottom: .3rem; font: 650 clamp(1.05rem, 1.2vw, 1.45rem)/1.35 var(--ex-sans); color: var(--ex-fg);
 }
-.ex-cinema-caption span { display: block; font: 400 clamp(.9rem, 1.25vw, 1.02rem)/1.65 var(--ex-sans); color: var(--ex-muted); }
+.ex-cinema-caption span { display: block; font: 400 clamp(.95rem, 1.05vw, 1.2rem)/1.65 var(--ex-sans); color: var(--ex-muted); }
 
-.ex-cinema-bar { flex: none; display: flex; align-items: center; gap: .6rem; width: min(100%, 74ch); margin: 0 auto; padding-top: .15rem; }
+.ex-cinema-bar { flex: none; display: flex; align-items: center; gap: .6rem; width: min(94vw, 1200px); margin: 0 auto; padding-top: .15rem; }
 .ex-cinema-prev, .ex-cinema-next, .ex-cinema-toggle {
   all: unset; box-sizing: border-box; cursor: pointer; flex: none; text-align: center;
   padding: .35rem .8rem; border: 1px solid var(--ex-line); border-radius: 999px; background: var(--ex-bg);
