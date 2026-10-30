@@ -11,6 +11,8 @@
   var KIT = 1;
   var root = document.documentElement;
   var inFrame = window.parent !== window;
+  var legacy = false;             // an older stepper card: fixed px, light-only CSS
+  var legacyRecalc = null;
   function post(msg) { if (inFrame) window.parent.postMessage(msg, "*"); }
 
   var I18N = {
@@ -53,7 +55,7 @@
       root.setAttribute("lang", d.lang);
       relabel();
     }
-    if (typeof d.scale === "number" && d.scale >= 0.5 && d.scale <= 3) root.style.setProperty("--ex-scale", String(d.scale));
+    if (typeof d.scale === "number" && d.scale >= 0.5 && d.scale <= 3) root.style.setProperty("--ex-scale", String(legacy ? 1 : d.scale));
   });
 
   /* ---- <ex-table> : data sample with a mandatory provenance badge -------------- */
@@ -951,6 +953,7 @@
     if (c.ui.root.parentNode) c.ui.root.parentNode.removeChild(c.ui.root);
     document.body.classList.remove("ex-cinema-on");
     cinema = null;
+    if (legacyRecalc) legacyRecalc();
     post({ type: "atlas:cinema", action: "exit" });
   }
 
@@ -1222,6 +1225,35 @@
     }, delay);
   }
 
+  function installLegacy() {
+    if (sceneFrames()) return;
+    var stepper = document.querySelector("figure.stepper");
+    if (!stepper) return;
+    var paper = stepper.parentElement;
+    if (!paper) return;
+    var node = paper;
+    while (node && node !== document.body) {
+      if (node.matches && node.matches(".ex, .wrap, .card, main, article")) paper = node;
+      node = node.parentElement;
+    }
+    legacy = true;
+    document.body.classList.add("ex-legacy");
+    document.body.style.maxWidth = "none";
+    paper.classList.add("ex-legacy-paper");
+    function recalc() {
+      if (!legacy || cinema || !paper) return;
+      paper.style.zoom = "";
+      var w = window.innerWidth;
+      var design = paper.getBoundingClientRect().width;
+      if (!design || design < 100) return;
+      var z = Math.max(0.75, Math.min(2.6, w / design));
+      paper.style.zoom = String(Math.round(z * 1000) / 1000);
+    }
+    legacyRecalc = recalc;
+    window.addEventListener("resize", recalc);
+    recalc();
+  }
+
   function installCinema() {
     var frames = stepperFrames() || sceneFrames();
     if (!frames || frames.count < 2) return;
@@ -1261,6 +1293,7 @@
     document.querySelectorAll("ex-anim").forEach(renderAnim);
     document.querySelectorAll("ex-scene").forEach(renderScene);
     document.querySelectorAll("ex-chart").forEach(renderChart);
+    installLegacy();
     installCinema();
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest("a[href]");

@@ -38,7 +38,14 @@
   --ex-add: #5bc08a; --ex-add-bg: #17301f; --ex-del: #ec8b7a; --ex-del-bg: #3a1f1a;
   --ex-warn: #e0b04a; --ex-warn-bg: #33290f; --ex-real: #5bc08a;
   color-scheme: dark;
+  background: var(--ex-bg);
 }
+
+/* Legacy stepper cards were authored light-only. Keep their layout, but in dark mode let the page follow
+ * the theme: the card's own paper is inverted with a hue rotation so diagrams keep their accent colours. */
+body.ex-legacy { background: var(--ex-bg); }
+:root[data-theme="dark"] body.ex-legacy .ex-legacy-paper { filter: invert(1) hue-rotate(180deg); }
+:root[data-theme="dark"] body.ex-legacy.ex-cinema-on .ex-cinema-stage { filter: invert(1) hue-rotate(180deg); }
 
 html { font-size: calc(16px * var(--ex-scale)); }
 body {
