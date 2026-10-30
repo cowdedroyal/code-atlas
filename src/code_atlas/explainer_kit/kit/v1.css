@@ -356,6 +356,13 @@ body.ex-cinema-on { overflow: hidden !important; }
 .ex-cinema-track { flex: 1 1 auto; height: .3rem; border-radius: 999px; background: var(--ex-line); overflow: hidden; }
 .ex-cinema-track i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ex-accent); transition: width .25s ease; }
 .ex-cinema-status { flex: none; min-width: 7rem; max-width: 14rem; text-align: right; font: .74rem/1.4 var(--ex-mono); color: var(--ex-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-cinema-retry {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; padding: .2rem .55rem;
+  border: 1px solid var(--ex-warn); border-radius: 999px; background: var(--ex-warn-bg);
+  color: var(--ex-warn); font: 600 .74rem/1.5 var(--ex-sans);
+}
+.ex-cinema-retry:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-retry:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
 
 @media (max-width: 720px) {
   .ex-cinema-title { font-size: .9rem; }

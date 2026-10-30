@@ -18,12 +18,14 @@
           play: "播放", pause: "暂停", frame: "帧", next: "下一步", prev: "上一步", sceneHint: "点一下，看下一步",
           cinema: "放映", cinemaHint: "连播并朗读每一帧", exitCinema: "退出放映", replay: "重播",
           resume: "继续", reading: "朗读中", paused: "已暂停", ended: "放映结束", voice: "音色",
+          connecting: "正在连接语音…", retryVoice: "重试语音",
           ttsFallback: "语音不可用，按文字节奏播放", ttsBlocked: "浏览器没有可用的语音，按文字节奏播放",
           missing: "这张图没有随卡片打包（重新运行 atlas-explainer pack）" },
     en: { real: "Real data", illustrative: "Illustrative data", undeclared: "Source not declared", from: "from", at: "read",
           play: "Play", pause: "Pause", frame: "Frame", next: "Next step", prev: "Previous step", sceneHint: "Click to continue",
           cinema: "Play", cinemaHint: "Play every frame and read it aloud", exitCinema: "Exit", replay: "Replay",
           resume: "Resume", reading: "Reading", paused: "Paused", ended: "The end", voice: "Voice",
+          connecting: "Connecting voice…", retryVoice: "Retry voice",
           ttsFallback: "Speech is unavailable; using reading pace", ttsBlocked: "No voice is available; using reading pace",
           missing: "This picture was not packed into the card (re-run atlas-explainer pack)" }
   };
@@ -851,12 +853,16 @@
     track.appendChild(fill);
     var status = el("div", "ex-cinema-status");
     status.setAttribute("aria-live", "polite");
+    var retry = el("button", "ex-cinema-retry", t("retryVoice"));
+    retry.type = "button";
+    retry.style.display = "none";
     bar.appendChild(prev);
     bar.appendChild(toggle);
     bar.appendChild(next);
     bar.appendChild(voice);
     bar.appendChild(track);
     bar.appendChild(status);
+    bar.appendChild(retry);
 
     shell.appendChild(head);
     shell.appendChild(main);
@@ -864,7 +870,7 @@
     shell.appendChild(bar);
     rootEl.appendChild(shell);
     return { root: rootEl, stage: stage, count: count, exit: exit, capB: capB, capS: capS,
-             prev: prev, toggle: toggle, next: next, voice: voice, fill: fill, status: status };
+             prev: prev, toggle: toggle, next: next, voice: voice, fill: fill, status: status, retry: retry };
   }
 
   function fillVoiceSelect(select, chosen) {
@@ -898,11 +904,12 @@
     document.body.classList.add("ex-cinema-on");
     cinema = { frames: frames, fig: fig, placeholder: placeholder, ui: ui,
                index: 0, playing: false, finished: false, token: 0,
-               timer: 0, watch: 0, broken: false, voice: cinemaVoice, live: false, audio: null };
+               timer: 0, watch: 0, broken: false, liveFailures: 0, speechDelay: 0, voice: cinemaVoice, live: false, audio: null };
     ui.exit.addEventListener("click", exitCinema);
     ui.toggle.addEventListener("click", function () { if (cinema) { if (cinema.playing) pauseCinema(); else playCinema(); } });
     ui.prev.addEventListener("click", function () { jumpCinema(-1); });
     ui.next.addEventListener("click", function () { jumpCinema(1); });
+    ui.retry.addEventListener("click", retryVoice);
     ui.voice.addEventListener("change", function () {
       if (!cinema) return;
       var opts = voiceOptions(root.getAttribute("lang"));
@@ -913,6 +920,9 @@
       if (!picked) return;
       cinema.voice = picked;
       cinema.live = true;
+      cinema.broken = false;
+      cinema.liveFailures = 0;
+      cinema.ui.retry.style.display = "none";
       if (cinema.playing) speakFrame(cinema.index);
     });
     ui.stage.addEventListener("click", function (e) {
@@ -974,8 +984,22 @@
     if (!cinema) return;
     if (cinema.finished) { cinema.finished = false; cinema.index = 0; }
     cinema.playing = true;
+    cinema.broken = false;
+    cinema.liveFailures = 0;
+    cinema.speechDelay = 250;
+    cinema.ui.retry.style.display = "none";
     updateToggle();
     showFrame(cinema.index);
+  }
+
+  function retryVoice() {
+    if (!cinema) return;
+    cinema.broken = false;
+    cinema.liveFailures = 0;
+    cinema.ui.retry.style.display = "none";
+    if (!cinema.playing) { playCinema(); return; }
+    cinema.speechDelay = 350;
+    speakFrame(cinema.index);
   }
 
   function pauseCinema() {
@@ -983,6 +1007,7 @@
     cinema.playing = false;
     stopSpeech();
     updateToggle();
+    cinema.ui.retry.style.display = "none";
     cinema.ui.status.textContent = t("paused");
   }
 
@@ -992,6 +1017,7 @@
     cinema.finished = true;
     stopSpeech();
     updateToggle();
+    cinema.ui.retry.style.display = "none";
     cinema.ui.status.textContent = t("ended");
   }
 
@@ -1000,6 +1026,9 @@
     var i = cinema.index + d;
     if (i < 0 || i >= cinema.frames.count) return;
     cinema.finished = false;
+    cinema.broken = false;
+    cinema.liveFailures = 0;
+    cinema.ui.retry.style.display = "none";
     showFrame(i);
     if (!cinema.playing) updateToggle();
   }
@@ -1022,7 +1051,14 @@
         a.load();
       } catch (e) { /* already gone */ }
     }
-    if (speech) { try { speech.cancel(); } catch (e) { /* no synth after all */ } }
+    if (speech) {
+      try {
+        if (speech.speaking || speech.pending || speech.paused) {
+          speech.cancel();
+          if (speech.paused) speech.resume();
+        }
+      } catch (e) { /* no synth after all */ }
+    }
   }
 
   function scheduleNext(token) {
@@ -1040,7 +1076,9 @@
     window.clearTimeout(cinema.watch);
     var chars = sentence.replace(/\s+/g, "").length;
     var ms = Math.max(2400, Math.min(20000, chars * 210));
+    cinema.broken = true;
     cinema.ui.status.textContent = speech ? t("ttsFallback") : t("ttsBlocked");
+    if (cinema.ui.retry) cinema.ui.retry.style.display = speech ? "" : "none";
     window.clearTimeout(cinema.timer);
     cinema.timer = window.setTimeout(function () {
       if (cinema && cinema.playing && cinema.token === token) scheduleNext(token);
@@ -1054,6 +1092,7 @@
     var text = cinema.frames.text(i);
     var sentence = clean([text.title, text.detail].filter(Boolean).join("。"));
     cinema.ui.status.textContent = "";
+    if (cinema.ui.retry) cinema.ui.retry.style.display = "none";
     if (!sentence) {
       cinema.timer = window.setTimeout(function () { if (cinema && cinema.playing && cinema.token === token) scheduleNext(token); }, 1400);
       return;
@@ -1085,6 +1124,7 @@
     a.onplay = function () {
       if (!cinema || cinema.token !== token) return;
       var who = n && n.voice ? voiceName(n.voice) : "";
+      cinema.ui.retry.style.display = "none";
       cinema.ui.status.textContent = t("reading") + (who ? " · " + who : "");
     };
     a.onended = function () {
@@ -1104,52 +1144,82 @@
 
   function afterSpeechFailure(token, sentence) {
     if (!cinema || cinema.token !== token) return;
+    cinema.ui.retry.style.display = "none";
     var n = narrationFor();
     var track = n && n.frames ? n.frames[cinema.index] : null;
     if (track && track.audio) { playNarration(token, track, sentence); return; }
     fallbackSpeech(token, sentence);
   }
 
-  function speakWithVoice(token, sentence) {
+  function speakWithVoice(token, sentence, attempt) {
     if (!cinema || cinema.token !== token) return;
+    attempt = attempt || 0;
     var u = new window.SpeechSynthesisUtterance(sentence);
     u.lang = root.getAttribute("lang") || "zh-CN";
     var v = cinema.voice || voiceFor(u.lang);
     if (v) { u.voice = v; cinema.voice = v; }
     u.rate = 1;
     u.pitch = 1;
-    var started = false;
+    var started = false, ended = false;
+    function finishOnce() { if (ended) return false; ended = true; return true; }
+    function retry() {
+      if (!cinema || cinema.token !== token || !cinema.playing) return;
+      window.clearTimeout(cinema.watch);
+      if (attempt < 1) {
+        try { speech.cancel(); if (speech.paused) speech.resume(); } catch (e) { /* gone */ }
+        cinema.ui.status.textContent = t("connecting");
+        window.setTimeout(function () {
+          if (!cinema || cinema.token !== token || !cinema.playing) return;
+          speakWithVoice(token, sentence, 1);
+        }, 400);
+        return;
+      }
+      cinema.broken = true;
+      cinema.liveFailures = (cinema.liveFailures || 0) + 1;
+      afterSpeechFailure(token, sentence);
+    }
     u.onstart = function () {
-      if (!cinema || cinema.token !== token) return;
+      if (!cinema || cinema.token !== token || ended) return;
       started = true;
+      if (cinema.ui.retry) cinema.ui.retry.style.display = "none";
       cinema.ui.status.textContent = t("reading") + (u.voice ? " · " + u.voice.name : "");
       window.clearTimeout(cinema.watch);
       cinema.watch = window.setTimeout(function () {
-        if (cinema && cinema.playing && cinema.token === token) { cinema.broken = true; afterSpeechFailure(token, sentence); }
-      }, 20000 + sentence.length * 200);
+        if (!cinema || cinema.token !== token || !cinema.playing) return;
+        if (finishOnce()) retry();
+      }, 25000 + sentence.length * 200);
     };
     u.onend = function () {
-      if (!cinema || cinema.token !== token) return;
+      if (!cinema || cinema.token !== token || !finishOnce()) return;
       window.clearTimeout(cinema.watch);
       cinema.ui.status.textContent = "";
       scheduleNext(token);
     };
     u.onerror = function (ev) {
-      if (!cinema || cinema.token !== token) return;
+      if (!cinema || cinema.token !== token || !finishOnce()) return;
       window.clearTimeout(cinema.watch);
       var why = ev && ev.error ? ev.error : "error";
-      if (why !== "interrupted" && why !== "canceled") {
-        cinema.broken = true;
-        afterSpeechFailure(token, sentence);
-      }
+      if (why === "interrupted" || why === "canceled") return;
+      retry();
     };
+    window.clearTimeout(cinema.watch);
     cinema.watch = window.setTimeout(function () {
-      if (!started && cinema && cinema.playing && cinema.token === token) {
-        cinema.broken = true;
-        afterSpeechFailure(token, sentence);
+      if (!cinema || cinema.token !== token || !cinema.playing) return;
+      if (!started && finishOnce()) retry();
+    }, 8000);
+    if (attempt) cinema.ui.status.textContent = t("connecting");
+    var delay = attempt ? 0 : (cinema.speechDelay || 140);
+    cinema.speechDelay = 0;
+    window.setTimeout(function () {
+      if (!cinema || cinema.token !== token || ended) return;
+      try {
+        if (speech.paused) speech.resume();
+        if (speech.speaking || speech.pending) speech.cancel();
+        speech.speak(u);
+      } catch (e) {
+        if (finishOnce()) retry();
       }
-    }, 4000);
-    try { speech.speak(u); } catch (e) { cinema.broken = true; afterSpeechFailure(token, sentence); }
+    }, delay);
   }
 
   function installCinema() {
