@@ -125,10 +125,12 @@ def tour_status(idx: Index, sem: Semantic, cards: dict[str, dict] | None = None)
                 continue
             s["at"] = node
             states.append("stale" if s.get("anchor") and s["anchor"] != idx.anchor(node) else None)
-        chains = check_tour(idx, sem, {**t, "steps": steps}, tid, lambda w, m: problems.append(m), regions_of, finder, cards)
-        broken = any("no call path" in m or "does not connect" in m or "card" in m for m in problems)
+        kinds: list[str] = []
+        chains = check_tour(idx, sem, {**t, "steps": steps}, tid, lambda w, m: problems.append(m), regions_of, finder,
+                            cards, kinds)
+        broken = any(k in ("card", "link", "relation") for k in kinds)
         state = "orphan" if "orphan" in states else "broken" if broken else "stale" if "stale" in states else None
-        out[tid] = {"state": state, "steps": states, "chains": chains, "problems": problems}
+        out[tid] = {"state": state, "steps": states, "chains": chains, "problems": problems, "problem_kinds": kinds}
     return out
 
 
@@ -153,49 +155,57 @@ def _anchor_explains(idx: Index, regions_of: dict[str, set[str]], anchor: str, n
     if anchor.startswith(REGION_PREFIX):
         return anchor in regions_of.get(file_of(node), set())
     a = idx.canonical(anchor)
-    return a == node or a.startswith(node + "#") or node.startswith(a + "#")
+    # same containment as the viewer: the file that holds it, the symbol itself, its members, or the class enclosing it
+    return PathFinder.covers(a, node) or PathFinder.covers(node, a)
 
 
 def check_tour(idx: Index, sem: Semantic, tour: dict, where: str, err, regions_of: dict[str, set[str]],
-               finder: PathFinder, cards: dict[str, dict] | None = None) -> list[list[str]]:
-    """Report problems through err(where, msg); → the hop chain between each pair of steps."""
+               finder: PathFinder, cards: dict[str, dict] | None = None, kinds: list[str] | None = None) -> list[list[str]]:
+    """Report problems through err(where, msg); → the hop chain between each pair of steps. When `kinds` is given,
+    one code per problem is appended to it (title/summary/steps/step/text/card/link/relation), so callers classify
+    by cause instead of by wording."""
+    def report(w, m, kind):
+        if kinds is not None:
+            kinds.append(kind)
+        err(w, m)
     for k in ("title", "summary"):
         v = tour.get(k)
         if k == "title" and not v:
-            err(where, "`title` is required")
+            report(where, "`title` is required", k)
         if v and len(v) > LIMITS[k]:
-            err(where, f"`{k}` is {len(v)} chars, limit {LIMITS[k]}")
+            report(where, f"`{k}` is {len(v)} chars, limit {LIMITS[k]}", k)
     steps = tour.get("steps")
     if not isinstance(steps, list) or not (MIN_STEPS <= len(steps) <= MAX_STEPS):
-        err(where, f"a tour needs {MIN_STEPS}–{MAX_STEPS} steps")
+        report(where, f"a tour needs {MIN_STEPS}–{MAX_STEPS} steps", "steps")
         return []
     chains: list[list[str]] = []  # one per step: the hop chain from the earlier step it is reached from
     for i, s in enumerate(steps):
         w = f"{where}.steps[{i}]"
         at = s.get("at") if isinstance(s, dict) else None
         if not isinstance(at, str) or not idx.exists(idx.canonical(at)):
-            err(w, f"`at` {at!r} is not a file or symbol in the index")
+            report(w, f"`at` {at!r} is not a file or symbol in the index", "step")
             chains.append([])
             continue
         at = idx.canonical(at)
         s["at"] = at
         text = s.get("text")
         if not text:
-            err(w, "`text` is required: say what happens here and why it matters")
+            report(w, "`text` is required: say what happens here and why it matters", "text")
         elif len(text) > LIMITS["text"]:
-            err(w, f"`text` is {len(text)} chars, limit {LIMITS['text']}")
+            report(w, f"`text` is {len(text)} chars, limit {LIMITS['text']}", "text")
         card_id = s.get("card")
         if card_id is not None:
             if not isinstance(card_id, str) or not card_id.strip():
-                err(w, "`card` must be an explainer card id")
+                report(w, "`card` must be an explainer card id", "card")
             elif cards is not None:
                 if card_id not in cards:
-                    err(w, f"card {card_id!r} does not exist — write it first with `codeatlas card apply`")
+                    report(w, f"card {card_id!r} does not exist — write it first with `codeatlas card apply`", "card")
                 else:
                     anchors = cards[card_id].get("anchors") or []
                     if not any(_anchor_explains(idx, regions_of, a, at) for a in anchors):
-                        err(w, f"card {card_id!r} does not explain this step: its anchors are {anchors or 'none'}, "
-                               f"but the step is {at} — anchor the card on the step's symbol (or on the file that holds it)")
+                        report(w, f"card {card_id!r} does not explain this step: its anchors are {anchors or 'none'}, "
+                               f"but the step is {at} — anchor the card on the step's symbol (or on the file that holds it)",
+                               "card")
         # earlier steps, nearest first: a flow often returns to an orchestrator before the next call
         earlier = [x["at"] for x in reversed(steps[:i]) if isinstance(x, dict) and idx.exists(x.get("at", ""))]
         if i == 0 or not earlier:
@@ -206,15 +216,16 @@ def check_tour(idx: Index, sem: Semantic, tour: dict, where: str, err, regions_o
             rel = sem.relations.get(rel_id)
             src = next((e for e in earlier if rel and relation_covers(idx, regions_of, rel["src"], e)), None)
             if rel is None:
-                err(w, f"via_relation {rel_id!r} does not exist")
+                report(w, f"via_relation {rel_id!r} does not exist", "relation-missing")
             elif src is None or not relation_covers(idx, regions_of, rel["dst"], at):
-                err(w, f"relation {rel_id} ({rel['src']} → {rel['dst']}) does not connect an earlier step to {at}")
+                report(w, f"relation {rel_id} ({rel['src']} → {rel['dst']}) does not connect an earlier step to {at}", "relation")
             chains.append([src or earlier[0], at])
             continue
         chain = next((c for c in (finder.path(e, at) for e in earlier) if c), None)
         if chain is None:
-            err(w, f"no call path to {at} from any earlier step within {MAX_HOPS} hops (nearest: {earlier[0]}) — add "
-                   f"the step in between (`codeatlas path` helps), or name the semantic relation that links them as `via_relation`")
+            report(w, f"no call path to {at} from any earlier step within {MAX_HOPS} hops (nearest: {earlier[0]}) — add "
+                   f"the step in between (`codeatlas path` helps), or name the semantic relation that links them as `via_relation`",
+                   "link")
             chains.append([])
         else:
             chains.append(chain)

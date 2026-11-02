@@ -219,3 +219,67 @@ def test_site_exports_tours_with_hops(tmp_path):
     assert tours[0]["id"] == "make-a-user" and len(tours[0]["steps"]) == 4
     assert all(len(s["box"]) == 4 for s in tours[0]["steps"])
     assert tours[0]["steps"][2]["hops"] == [] or all(len(h) == 2 for h in tours[0]["steps"][2]["hops"])
+
+
+def test_step_card_may_cover_a_symbol_inside_or_around_the_step(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, card_draft(tmp_path, anchors=("app/models.py#User.greet",)), run="c1")["ok"]
+    assert apply_card(repo, card_draft(tmp_path, cid="class-card", anchors=("app/models.py#User",)), run="c2")["ok"]
+    base = [{"at": "main.py", "text": "Entry."}, {"at": "app/service.py#make_user", "text": "Builds it."}]
+    # a card on a method explains a step on its class (a symbol inside the step)
+    tour = {"id": "coarse", "title": "User", "summary": "The user model.",
+            "steps": base + [{"at": "app/models.py#User", "text": "The class.", "card": "step-card"}]}
+    report, _, _ = validate(repo, {"tours": [tour]})
+    assert report["ok"], report["errors"]
+    # and a card on the class explains a step on one of its methods, as in the viewer
+    fine = {**tour, "id": "fine", "steps": [base[0], {"at": "app/models.py#User.greet", "text": "Greets.", "card": "class-card"}]}
+    report, _, _ = validate(repo, {"tours": [fine]})
+    assert report["ok"], report["errors"]
+
+
+def test_a_moved_symbol_keeps_its_card_in_the_map(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, card_draft(tmp_path, anchors=("app/models.py#User.greet",)), run="c1")["ok"]
+    (repo / "app/entities.py").write_text((repo / "app/models.py").read_text(encoding="utf-8"), "utf-8")
+    (repo / "app/models.py").unlink()
+    svc = (repo / "app/service.py").read_text(encoding="utf-8").replace("from .models import User", "from .entities import User")
+    (repo / "app/service.py").write_text(svc, encoding="utf-8")
+    scan(repo)
+    assert build_data(repo)["graph"]["explainers"][0]["anchors"] == ["app/entities.py#User.greet"]
+
+
+def test_agenda_card_hints_match_the_card_state(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, card_draft(tmp_path, anchors=("app/models.py#User.greet",)), run="c1")["ok"]
+    models = (repo / "app/models.py").read_text(encoding="utf-8").replace("return self.save()", "return self.save() or None")
+    (repo / "app/models.py").write_text(models, encoding="utf-8")
+    scan(repo)
+    task = next(t for t in agenda(repo, limit=100, types=["refresh"])["tasks"] if t["target"] == "card:step-card")
+    assert task["hint"].startswith("codeatlas show app/models.py#User.greet --code")  # review before confirming
+    assert "card confirm step-card" in task["hint"]
+    models = models.replace("    def greet(self):\n        return self.save() or None\n", "")
+    (repo / "app/models.py").write_text(models, encoding="utf-8")
+    scan(repo)
+    task = next(t for t in agenda(repo, limit=100, types=["refresh"])["tasks"] if t["target"] == "card:step-card")
+    assert task["hint"].startswith("copy .codemap/explainers/step-card/card.yaml")  # confirm refuses an orphan
+    assert "card apply" in task["hint"] and "card delete step-card" in task["hint"]
+    assert "card confirm" not in task["hint"]
+
+
+def test_a_step_path_containing_card_is_not_a_card_problem(tmp_path):
+    repo = setup(tmp_path)
+    (repo / "app/credit_card.py").write_text("def charge():\n    return 1\n", encoding="utf-8")
+    svc = (repo / "app/service.py").read_text(encoding="utf-8")
+    svc = svc.replace("from . import util", "from . import util\nfrom .credit_card import charge")
+    svc = svc.replace("    util.log(name)\n", "    util.log(name)\n    charge()\n")
+    (repo / "app/service.py").write_text(svc, encoding="utf-8")
+    scan(repo)
+    tour = {"id": "charging", "title": "Charging", "summary": "Charge the card.",
+            "steps": [{"at": "main.py", "text": "Entry."}, {"at": "app/credit_card.py#charge", "text": "Charges."}]}
+    assert apply(repo, {"tours": [tour]}, run="t1")["ok"]
+    (repo / "app/service.py").write_text(svc.replace("    charge()\n", ""), encoding="utf-8")
+    scan(repo)
+    st = tour_status(load_index(repo), store.load(repo))["charging"]
+    assert st["state"] == "broken" and st["problem_kinds"] == ["link"]
+    task = next(t for t in agenda(repo, limit=100, types=["refresh"])["tasks"] if t["target"] == "tour:charging")
+    assert task["reason"] == "tour: two consecutive steps are no longer connected"
