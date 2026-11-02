@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 from bisect import bisect_right
 import shlex
@@ -231,13 +232,23 @@ def _frames_from_video(path: Path, tmp: Path) -> tuple[list[Path], list[float]]:
         raise BakeError(f"cannot read {path.name}: {e}") from e
 
 
-def _run(card: Path, command: str) -> None:
-    """Run the author's declared render command. Only `bake` does this, and only when asked."""
+def _run(card: Path, command: str, allow_run: bool | None = None) -> None:
+    """Run the author's declared render command, but only after the maintainer opts in.
+
+    `run` comes from a card that may have travelled through git, so it is not run by default: bake is meant to
+    render frames, not to execute a contributor's shell command. `allow_run=None` consults the environment so the
+    CLI flag and the env var share one switch.
+    """
     if not command:
         return
     if not isinstance(command, (str, list)):
         raise BakeError("run must be a command string or a list of arguments")
     args = command if isinstance(command, str) else " ".join(shlex.quote(a) for a in command)
+    if allow_run is None:
+        allow_run = os.environ.get("ATLAS_EXPLAINER_ALLOW_RUN") == "1"
+    if not allow_run:
+        raise BakeError(f"refusing to run `{args}` from media/bake.yaml: it is author-controlled code. "
+                        "Pass --allow-run or set ATLAS_EXPLAINER_ALLOW_RUN=1 to allow it")
     r = subprocess.run(args, cwd=card, shell=True, capture_output=True, text=True)
     if r.returncode != 0:
         tail = (r.stderr or r.stdout or "").strip().splitlines()[-8:]
@@ -307,11 +318,11 @@ def _sample_video(frames: list[Path], durations: list[float], fps: float) -> tup
     return picked, [total / count] * count
 
 
-def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
+def bake_anim(card: Path, name: str, cfg: dict | None = None, allow_run: bool | None = None) -> dict:
     """Sprite-sheet one animation: run its declared command, collect frames, write `media/<name>.*`."""
     cfg = cfg or {}
     if cfg.get("run"):
-        _run(card, cfg["run"])
+        _run(card, cfg["run"], allow_run)
     try:
         fps = float(cfg.get("fps") or DEFAULT_FPS)
     except (TypeError, ValueError):
@@ -784,8 +795,12 @@ def _one_kind(kinds: dict[str, str], name: str, kind: str) -> None:
     kinds[name] = kind
 
 
-def bake_card(card: Path, only: set[str] | None = None) -> dict:
-    """Bake every asset the card declares. Returns what was written, for the CLI's JSON output."""
+def bake_card(card: Path, only: set[str] | None = None, allow_run: bool | None = None) -> dict:
+    """Bake every asset the card declares. Returns what was written, for the CLI's JSON output.
+
+    `allow_run=None` means the environment variable ATLAS_EXPLAINER_ALLOW_RUN=1 decides whether a card's
+    media/bake.yaml `run` command may execute; the CLI exposes the same switch as `--allow-run`.
+    """
     cfg = bake_config(card)
     anims, charts, scenes = anim_names(card, cfg), chart_names(card, cfg), scene_names(card, cfg)
     kinds: dict[str, str] = {}
@@ -797,7 +812,7 @@ def bake_card(card: Path, only: set[str] | None = None) -> dict:
     written = {}
     for name in anims:
         if only is None or name in only:
-            written[name] = bake_anim(card, name, (cfg.get("anim") or {}).get(name) or {})
+            written[name] = bake_anim(card, name, (cfg.get("anim") or {}).get(name) or {}, allow_run)
     for name in charts:
         if only is None or name in only:
             written[name] = bake_chart(card, name, (cfg.get("chart") or {}).get(name) or {})

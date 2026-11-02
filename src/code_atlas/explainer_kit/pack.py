@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import math
 import re
@@ -48,7 +49,8 @@ NARRATION = "narration"        # optional media/narration.json: one spoken clip 
 VENDOR = PKG / MEDIA / "vendor"
 RUNTIME = [VENDOR / "vega.min.js", VENDOR / "vega-interpreter.min.js"]
 LICENSES = [VENDOR / "LICENSE-vega.txt", VENDOR / "LICENSE-vega-interpreter.txt"]
-CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+# `{script_src}` is the hashes of exactly the inline scripts pack writes; author scripts have none, so they cannot run.
+CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src {script_src}; "
        "img-src data:; font-src data:; media-src data:; base-uri 'none'; form-action 'none'")
 CSS_PLACEHOLDER = f"atlas-kit:{KIT_VERSION}.css"
 JS_PLACEHOLDER = f"atlas-kit:{KIT_VERSION}.js"
@@ -68,8 +70,27 @@ def card_dirs(path: Path) -> list[Path]:
     return sorted(p.parent for p in path.glob("*/card.yaml"))
 
 
+def _srcset_allowed(value: str) -> bool:
+    """Every srcset candidate must be an inline image. A data: URL contains commas of its own."""
+    rest = value.strip()
+    while rest:
+        m = re.match(r"\s*(\S+)", rest)
+        url, rest = m.group(1), rest[m.end():]
+        separated = url.endswith(",")             # a comma right after the URL separates candidates
+        if separated:
+            url = url[:-1]
+        if url and not url.lower().startswith("data:image/"):
+            return False
+        if not separated:
+            comma = rest.find(",")                # skip descriptors (`2x`, `100w`) up to the next candidate
+            rest = "" if comma < 0 else rest[comma + 1:]
+    return True
+
+
 def _url_allowed(attr: str, value: str, tag: str = "") -> bool:
     """Only fragments, atlas:// links, baked media names and inline images may appear in URL-bearing attributes."""
+    if attr == "srcset":
+        return _srcset_allowed(value)
     v = value.strip()
     if v.startswith("#"):
         return True
@@ -77,7 +98,13 @@ def _url_allowed(attr: str, value: str, tag: str = "") -> bool:
         return attr == "src" and tag in MEDIA_TAGS
     if attr == "href" and v.startswith("atlas://"):
         return True
-    return attr in {"src", "srcset"} and v.lower().startswith("data:image/")
+    return attr == "src" and v.lower().startswith("data:image/")
+
+
+FOREIGN_TAGS = {"svg", "math"}
+SMIL_TAGS = {"animate", "animatemotion", "animatetransform", "discard", "set"}
+CANONICAL_CSS = f'<link rel="stylesheet" href="{CSS_PLACEHOLDER}">'
+CANONICAL_JS = f'<script src="{JS_PLACEHOLDER}">'
 
 
 class _Scan(HTMLParser):
@@ -86,13 +113,37 @@ class _Scan(HTMLParser):
         self.errors: list[str] = []
         self.has_css = self.has_js = False
         self.in_style = False
+        self.foreign = 0                              # open <svg>/<math> elements: HTML rawtext does not apply there
+        self.script_body: str | None = None           # text of the kit placeholder script, which must be empty
         self.media: list[tuple[str, int, str]] = []   # (tag, line, name)
+        self._support_cdata = False                   # 3.13: a CDATA declaration would hide the markup after it
+
+    def reset(self):
+        super().reset()
+        self._support_cdata = False                   # feed()/close() may reset; keep CDATA disabled
+
+    def set_cdata_mode(self, elem, *args, **kwargs):
+        # HTMLParser's rawtext/RCDATA modes assume HTML content; in SVG/MathML the same children are markup.
+        if not self.foreign:
+            super().set_cdata_mode(elem, *args, **kwargs)
 
     def err(self, msg: str):
         self.errors.append(f"index.html:{self.getpos()[0]}: {msg}")
 
     def handle_starttag(self, tag, attrs):
+        self._start(tag, attrs, self_closing=False)
+
+    def handle_startendtag(self, tag, attrs):
+        self._start(tag, attrs, self_closing=True)
+
+    def _start(self, tag, attrs, self_closing):
+        seen = set()
+        for k, _ in attrs:
+            if k in seen:
+                self.err(f"<{tag}> repeats the attribute `{k}`; browsers keep the first value")
+            seen.add(k)
         a = {k: (v or "") for k, v in attrs}
+        raw = (self.get_starttag_text() or "").strip()
         if tag in FORBIDDEN_TAGS:
             self.err(f"<{tag}> is not allowed in a card")
         if tag == "meta" and a.get("http-equiv"):
@@ -100,16 +151,21 @@ class _Scan(HTMLParser):
         for k in a:
             if k.startswith("on"):
                 self.err(f"event handler attribute `{k}` is not allowed; cards run no custom scripts")
+        if tag in SMIL_TAGS and (tag == "set" or a.get("attributename", "").lower() in URL_ATTRS):
+            self.err(f"<{tag}> is not allowed: SMIL can retarget a URL attribute after lint")
         if tag == "link":
-            if a.get("href") == CSS_PLACEHOLDER and a.get("rel", "").lower() == "stylesheet":
+            if not self_closing and raw == CANONICAL_CSS:
                 self.has_css = True
             else:
-                self.err(f'<link> may only be `<link rel="stylesheet" href="{CSS_PLACEHOLDER}">`')
+                self.err(f'<link> may only be `{CANONICAL_CSS}`')
         elif tag == "script":
-            if a.get("src") == JS_PLACEHOLDER:
-                self.has_js = True
+            if self.foreign:
+                self.err("cards run no custom scripts; <script> is not allowed inside <svg> or <math>")
+            elif self_closing or raw != CANONICAL_JS:
+                self.err(f'cards run no custom scripts; the only <script> is `{CANONICAL_JS}</script>`')
             else:
-                self.err(f'cards run no custom scripts; the only <script> is `<script src="{JS_PLACEHOLDER}"></script>`')
+                self.has_js = True
+                self.script_body = ""
         elif tag == "style":
             self.in_style = True
         else:
@@ -139,28 +195,57 @@ class _Scan(HTMLParser):
                 self.err(f'<{tag} source="real"> needs origin="…" saying where the data was read from (file, command or log)')
         if tag == "ex-stage" and not a.get("title"):
             self.err("<ex-stage> needs a title")
-
-    def handle_startendtag(self, tag, attrs):
-        self.handle_starttag(tag, attrs)
+        if tag in FOREIGN_TAGS and not self_closing:
+            self.foreign += 1
 
     def handle_endtag(self, tag):
         if tag == "style":
             self.in_style = False
+        if tag == "script" and self.script_body is not None:
+            if self.script_body.strip():
+                self.err(f"the kit `<script>` must be empty; inline script bodies are not allowed")
+            self.script_body = None
+        if tag in FOREIGN_TAGS and self.foreign:
+            self.foreign -= 1
 
     def handle_data(self, data):
         if self.in_style and CSS_EXTERNAL.search(data):
             self.err("<style> loads an external resource (@import / url(http…))")
+        if self.script_body is not None:
+            self.script_body += data
+
+    def feed(self, data):
+        if "<![" in data.lower():
+            self.err("CDATA sections are not allowed in a card")   # 3.12 parses them even with CDATA support off
+        super().feed(data)
+
+
+_STRUCTURE_TOKENS = re.compile(r"<(/?)ex-(flow|compare|stage|before|after)\b", re.I)
 
 
 def _structure_errors(html: str) -> list[str]:
-    errs = []
-    for m in re.finditer(r"<ex-flow\b.*?</ex-flow>", html, re.S | re.I):
-        if "<ex-stage" not in m.group(0).lower():
-            errs.append("<ex-flow> contains no <ex-stage>")
-    for m in re.finditer(r"<ex-compare\b.*?</ex-compare>", html, re.S | re.I):
-        body = m.group(0).lower()
-        if "<ex-before" not in body or "<ex-after" not in body:
-            errs.append("<ex-compare> needs both <ex-before> and <ex-after>")
+    """One linear pass over the structural tags; a regex from each opener to its closer is quadratic on bad input."""
+    errs, flows, compares = [], [], []      # flows: has an <ex-stage>; compares: [has <ex-before>, has <ex-after>]
+    for m in _STRUCTURE_TOKENS.finditer(html):
+        closing, name = bool(m.group(1)), m.group(2).lower()
+        if name == "flow":
+            if not closing:
+                flows.append(False)
+            elif flows and not flows.pop():
+                errs.append("<ex-flow> contains no <ex-stage>")
+        elif name == "stage":
+            if not closing and flows:
+                flows[-1] = True
+        elif name == "compare":
+            if not closing:
+                compares.append([False, False])
+            elif compares and not all(compares.pop()):
+                errs.append("<ex-compare> needs both <ex-before> and <ex-after>")
+        elif name == "before":
+            if not closing and compares:
+                compares[-1][0] = True
+        elif not closing and compares:
+            compares[-1][1] = True           # ex-after
     return errs
 
 
@@ -310,7 +395,10 @@ def load_media(card: Path) -> tuple[dict[str, dict], list[str]]:
     if not d.is_dir():
         return out, errors
     page = card / "index.html"
-    names = set(media_refs(page.read_text("utf-8"))) if page.is_file() else set()
+    try:
+        names = set(media_refs(page.read_text("utf-8"))) if page.is_file() else set()
+    except (OSError, UnicodeError) as e:
+        return out, [f"index.html: unreadable ({e})"]
     if (d / f"{NARRATION}.json").is_file():
         names.add(NARRATION)             # narration is a card-level track, not a tag on the page
     # Only referenced names are required manifests. Other JSON files may be authored chart data.
@@ -330,7 +418,14 @@ def load_media(card: Path) -> tuple[dict[str, dict], list[str]]:
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             errors.append(f"media/{p.name}: not valid JSON ({e})")
             continue
-        invalid = _media_errors(m)
+        except RecursionError:
+            errors.append(f"media/{p.name}: nested too deeply")
+            continue
+        try:
+            invalid = _media_errors(m)
+        except RecursionError:
+            errors.append(f"media/{p.name}: nested too deeply")
+            continue
         if invalid:
             errors.extend(f"media/{p.name}: {e}" for e in invalid)
             continue
@@ -425,13 +520,39 @@ def kit_bytes() -> int:
                for ext in ("css", "js"))
 
 
+def _authored_size(html: str, manifest: dict) -> int:
+    """The bytes `pack_html(..., media={}, kit=False)` would write, without its raw-text tag scans.
+
+    Those scans (`<link[^>]*…`, `<script[^>]*…`) retry the tail for every prefix when a card has thousands of
+    unterminated tags; this only handles the canonical placeholders, which lint has already enforced.
+    """
+    page = html.replace(CANONICAL_CSS, "<style>\n</style>")
+    page, inlined = re.subn(re.escape(CANONICAL_JS) + r"\s*</script>", "<script>\n</script>", page)
+    prefix = "<!doctype html>\n"
+    lang = manifest.get("language")
+    if lang and not _declares_lang(html):
+        lang = str(lang).replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+        prefix += f'<html lang="{lang}">\n'
+    prefix += ('<meta charset="utf-8">\n'
+               f'<meta http-equiv="Content-Security-Policy" content="{_csp(["\n"] if inlined else [])}">\n')
+    return len((prefix + page).encode("utf-8"))
+
+
 def lint_card(card: Path) -> list[str]:
     problems: list[str] = []
     try:
         manifest = load_manifest(card)
+    except UnicodeError:
+        return ["card.yaml: not UTF-8"]
     except yaml.YAMLError as e:
         return [f"card.yaml: not valid YAML ({e})"]
-    for e in sorted(_schema.iter_errors(manifest), key=lambda e: [str(p) for p in e.path]):
+    except (OSError, RecursionError) as e:
+        return [f"card.yaml: unreadable or nested too deeply ({e})"]
+    try:
+        schema_errors = sorted(_schema.iter_errors(manifest), key=lambda e: [str(p) for p in e.path])
+    except RecursionError:
+        return ["card.yaml: nested too deeply"]
+    for e in schema_errors:
         where = ".".join(str(p) for p in e.path) or "(root)"
         problems.append(f"card.yaml: {where}: {e.message}")
     if isinstance(manifest, dict) and manifest.get("id") and manifest["id"] != card.name:
@@ -439,25 +560,59 @@ def lint_card(card: Path) -> list[str]:
     page = card / "index.html"
     if not page.exists():
         return problems + ["index.html is missing"]
-    html = page.read_text("utf-8")
+    try:
+        html = page.read_text("utf-8")
+    except UnicodeError:
+        return problems + ["index.html: not UTF-8"]
+    except OSError as e:
+        return problems + [f"index.html: unreadable ({e})"]
+    # Bound the work before any scan: a page over the budget cannot pass, and the old order let a 200 KB card spend
+    # tens of seconds in quadratic raw-text scans first.
+    raw = len(html.encode("utf-8"))
+    if raw > MAX_BYTES:
+        return problems + [f"index.html is {raw:,} bytes; the limit is {MAX_BYTES:,} "
+                           "(fewer rows, smaller images)"]
     scan = _Scan()
     scan.feed(html)
     problems += scan.errors
     if not scan.has_css:
-        problems.append(f'index.html: missing `<link rel="stylesheet" href="{CSS_PLACEHOLDER}">`')
-    if not scan.has_js:
-        problems.append(f'index.html: missing `<script src="{JS_PLACEHOLDER}"></script>`')
+        problems.append(f'index.html: missing `{CANONICAL_CSS}`')
+    # pack replaces the placeholder with a raw-text regex, so require the exact end tag the browser and pack see.
+    if not scan.has_js or not re.search(re.escape(CANONICAL_JS) + r"\s*</script>", html):
+        problems.append(f'index.html: missing `{CANONICAL_JS}</script>`')
     problems += ["index.html: " + e for e in _structure_errors(html)]
     for pat, what in ((r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b", "network API"),
                       (r"\beval\s*\(|new\s+Function\b", "dynamic code")):
         if re.search(pat, html):
             problems.append(f"index.html: contains a {what} reference")
     problems += lint_media(card, scan)
-    authored = len(pack_html(html, manifest if isinstance(manifest, dict) else {}, media={}, kit=False).encode("utf-8"))
+    authored = _authored_size(html, manifest if isinstance(manifest, dict) else {})
     if authored > MAX_BYTES:
         problems.append(f"card content is {authored:,} bytes once packed, without the kit; the limit is {MAX_BYTES:,} "
                         "(fewer rows, smaller images)")
     return problems
+
+
+def _script_hash(src: str) -> str:
+    return "'sha256-" + base64.b64encode(hashlib.sha256(src.encode("utf-8")).digest()).decode("ascii") + "'"
+
+
+def _csp(scripts: list[str]) -> str:
+    return CSP.format(script_src=" ".join(_script_hash(s) for s in scripts) or "'none'")
+
+
+def _declares_lang(html: str) -> bool:
+    """Whether the card's real <html> start tag declares lang; text and attribute values do not count."""
+    class Scan(HTMLParser):
+        found = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "html" and any(k == "lang" for k, _ in attrs):
+                self.found = True
+
+    scan = Scan()
+    scan.feed(html)
+    return scan.found
 
 
 def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, kit: bool = True) -> str:
@@ -467,6 +622,12 @@ def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, k
     handle media at all, so a card that uses some is an error rather than a page that silently loses its pictures.
     `kit=False` leaves the kit out, which is what the page budget measures: the kit and the Vega runtime are charged
     to their own budgets, not to the author.
+
+    The packed document starts with its own doctype, charset and CSP, before any byte the author wrote, so no author
+    markup can move or drop the policy; the author's own doctype/html/head tokens are then harmless parse errors. The
+    CSP allows only the hashes of the inline scripts written here: the kit and, when a chart asks for it, the Vega
+    runtime. Lint is still the first line of defence, but anything it misses (an event-handler attribute, a
+    javascript: URL, an inline <script> in foreign content) cannot execute.
     """
     css = (PKG / "kit" / f"v{KIT_VERSION}.css").read_text("utf-8") if kit else ""
     js = (PKG / "kit" / f"v{KIT_VERSION}.js").read_text("utf-8") if kit else ""
@@ -475,6 +636,7 @@ def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, k
             raise ValueError("this card uses baked media; pass `media=inline_media(...)` to pack_html")
         media = {}
     injected = ""
+    scripts: list[str] = []       # the exact text of every inline script written below, hashed into script-src
     if media:
         for name, m in media.items():
             invalid = _media_errors(m)
@@ -483,21 +645,26 @@ def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, k
         if any(m.get("vega") for m in media.values()):
             notices = "\n\n".join(p.read_text("utf-8") for p in LICENSES)
             injected += "<!-- Third-party licenses\n" + notices.replace("--", "&#45;&#45;") + "\n-->\n"
-            injected += "<script>\n" + "\n".join(p.read_text("utf-8") for p in RUNTIME) + "\n</script>\n"
-        payload = json.dumps(media, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+            runtime = "\n".join(p.read_text("utf-8") for p in RUNTIME)
+            injected += "<script>\n" + runtime + "\n</script>\n"
+            scripts.append("\n" + runtime + "\n")
+        # Every "<" escaped: "</script" would end the element and "<!--<script" would make it swallow the kit after it.
+        payload = json.dumps(media, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
         injected += f'<script type="application/json" id="atlas-media-registry">{payload}</script>\n'
     html = re.sub(r"<link\b[^>]*" + re.escape(CSS_PLACEHOLDER) + r"[^>]*>", lambda _: f"<style>\n{css}</style>", html)
-    html = re.sub(r"<script\b[^>]*" + re.escape(JS_PLACEHOLDER) + r"[^>]*>\s*</script>",
-                  lambda _: injected + f"<script>\n{js}</script>", html)
-    csp = f'<meta http-equiv="Content-Security-Policy" content="{CSP}">'
-    if re.search(r"<head\b[^>]*>", html, re.I):
-        html = re.sub(r"(<head\b[^>]*>)", lambda m: m.group(1) + csp, html, count=1, flags=re.I)
-    else:
-        html = csp + html
+    block = injected + f"<script>\n{js}</script>"
+    html, inlined = re.subn(r"<script\b[^>]*" + re.escape(JS_PLACEHOLDER) + r"[^>]*>\s*</script>",
+                            lambda _: block, html)
+    if inlined:
+        scripts.append("\n" + js)
+    prefix = "<!doctype html>\n"
     lang = manifest.get("language")
-    if lang and not re.search(r"<html\b[^>]*\blang=", html, re.I):
-        html = re.sub(r"<html\b", f'<html lang="{lang}"', html, count=1, flags=re.I)
-    return html
+    if lang and not _declares_lang(html):
+        lang = str(lang).replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+        prefix += f'<html lang="{lang}">\n'
+    prefix += ('<meta charset="utf-8">\n'
+               f'<meta http-equiv="Content-Security-Policy" content="{_csp(scripts)}">\n')
+    return prefix + html
 
 
 def media_refs(html: str) -> list[str]:

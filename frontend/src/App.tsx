@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import MapView, { fitView, type ViewState } from "./MapView";
 import Panel from "./Panel";
 import Search from "./Search";
@@ -24,6 +24,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [chunks, setChunks] = useState<Map<number, Chunk>>(new Map());
   const [selection, setSelection] = useState<Selection>(null);
+  // The delayed symbol framing reads this instead of the captured selection.
+  const selectionRef = useRef<Selection>(null);
+  selectionRef.current = selection;
   const [level, setLevel] = useState<Level>(0);
   const [levelLock, setLevelLock] = useState<LevelLock | null>(null);
   const [panelWidth, setPanelWidth] = useState(400);
@@ -54,6 +57,7 @@ export default function App() {
   }, []);
 
   const navigate = useCallback((s: Selection) => {
+    selectionRef.current = s;
     if (!graph || !s) return setSelection(s);
     setSelection(s);
     const free = { top: 64, right: actualPanelWidth + 24, bottom: 100 };
@@ -65,6 +69,8 @@ export default function App() {
       requestChunks([f.chunk]);
       setVs(fitView(f.box, size, 0.6, free));
       loadSearch().then((rows) => {
+        const current = selectionRef.current;
+        if (current?.type !== "symbol" || current.id !== s.id) return;
         const hit = rows.find((x) => x[3] === s.id);
         if (!hit) return;
         const box = [hit[4], hit[5], hit[6], hit[7]] as [number, number, number, number];

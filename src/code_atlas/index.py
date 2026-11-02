@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -28,8 +29,24 @@ def cache_dir(repo: Path) -> Path:
     return repo / ".codemap" / "cache"
 
 
+def check_unlinked(repo: Path, path: Path) -> None:
+    """Refuse `path` if a symlink or junction inside the repository leads to it: a cloned repository controls those,
+    and a linked `.codemap` or `cache/site` would make Code Atlas write or delete files elsewhere on the machine."""
+    base = Path(os.path.abspath(repo))
+    try:
+        parts = Path(os.path.abspath(path)).relative_to(base).parts
+    except ValueError:  # outside the repository: the user chose it
+        return
+    p = base
+    for part in parts:
+        p = p / part
+        if p.is_symlink() or getattr(p, "is_junction", lambda: False)():
+            raise ValueError(f"{p} is a symlink or junction; refusing to write through it")
+
+
 def connect(repo: Path) -> sqlite3.Connection:
     d = cache_dir(repo)
+    check_unlinked(repo, d)
     d.mkdir(parents=True, exist_ok=True)
     gi = repo / ".codemap" / ".gitignore"
     if not gi.exists():

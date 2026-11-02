@@ -58,6 +58,15 @@ interface Props {
   dark: boolean;
 }
 
+function sameHover(a: Hover, b: Hover): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === "region" && b.type === "region") return a.index === b.index;
+  if (a.type === "file" && b.type === "file") return a.index === b.index;
+  if (a.type === "symbol" && b.type === "symbol") return a.id === b.id && a.file === b.file;
+  return false;
+}
+
 const center = (b: Box): [number, number] => [b[0] + b[2] / 2, b[1] + b[3] / 2];
 const rect = (b: Box) => [[b[0], b[1]], [b[0] + b[2], b[1]], [b[0] + b[2], b[1] + b[3]], [b[0], b[1] + b[3]]];
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -83,6 +92,8 @@ export default function MapView(p: Props) {
   const RELATION_INK = INK.primary;
   const { graph, chunks, viewState: vs, size, selection } = p;
   const [hover, setHover] = useState<Hover>(null);
+  // deck.gl calls onHover every animation frame; keep the same state when the target is unchanged.
+  const updateHover = (next: Hover) => setHover((prev) => (sameHover(prev, next) ? prev : next));
 
   const symbolsByFile = useMemo(() => {
     const m = new Map<number, SymbolNode[]>();
@@ -102,6 +113,18 @@ export default function MapView(p: Props) {
     const r = graph.regions[f.region];
     return r.parent === null ? f.box[2] * 2.5 : r.box[2];
   }), [graph]);
+  // Sorted once per graph: the L1 layer only walks it until 150 visible edges are found.
+  const rankedFileEdges = useMemo(() => graph.file_edges.slice().sort((x, y) => y[2] - x[2]), [graph]);
+  // Per-file adjacency, so the active-file branch does not scan every file edge.
+  const fileEdges = useMemo(() => {
+    const m = new Map<number, [number, number, number, string[]][]>();
+    const at = (i: number) => m.get(i) ?? m.set(i, []).get(i)!;
+    for (const e of graph.file_edges) {
+      at(e[0]).push(e);
+      if (e[1] !== e[0]) at(e[1]).push(e);
+    }
+    return m;
+  }, [graph]);
 
   const scale = 2 ** vs.zoom;
   const [cx, cy] = vs.target;
@@ -226,8 +249,7 @@ export default function MapView(p: Props) {
         }
     } else if (level === 1 && activeFile !== null) {
       const vis = new Set(dotFiles);
-      for (const [a, b, w, types] of graph.file_edges) {
-        if (a !== activeFile && b !== activeFile) continue;
+      for (const [a, b, w, types] of fileEdges.get(activeFile) ?? []) {
         if (!vis.has(a) || !vis.has(b)) continue;
         const pa = center(graph.files[a].box), pb = center(graph.files[b].box);
         const type = types.includes("calls") ? "calls" : types.includes("inherits") ? "inherits" : types[0];
@@ -235,8 +257,13 @@ export default function MapView(p: Props) {
       }
     } else if (level === 1) {
       const vis = new Set(dotFiles);
-      graph.file_edges.filter(([a, b]) => vis.has(a) && vis.has(b)).sort((x, y) => y[2] - x[2]).slice(0, 150)
-        .forEach(([a, b, w]) => {
+      const picked: [number, number, number, string[]][] = [];
+      for (const e of rankedFileEdges) {
+        if (!vis.has(e[0]) || !vis.has(e[1])) continue;
+        picked.push(e);
+        if (picked.length === 150) break;
+      }
+      picked.forEach(([a, b, w]) => {
           const pb = center(graph.files[b].box);
           edgeData.push({ path: bundledFilePath(graph.files[a].box, graph.files[b].box,
             graph.regions[graph.files[a].region].box, graph.regions[graph.files[b].region].box),
@@ -381,7 +408,7 @@ export default function MapView(p: Props) {
       }));
     }
     return L;
-  }, [frame, symbolsByFile, chunks, hover, selection, vs, size, p.tour, p.levelLock, p.dark]);
+  }, [frame, symbolsByFile, chunks, hover, selection, vs, size, p.tour, p.levelLock, p.dark, rankedFileEdges, fileEdges]);
 
   return (
     <DeckGL
@@ -395,13 +422,13 @@ export default function MapView(p: Props) {
         const o = info.object, id = info.layer?.id;
         if (frame.level === 0 && info.coordinate) {
           const index = regionAtPoint(graph, info.coordinate);
-          return setHover(index === null ? null : { type: "region", index });
+          return updateHover(index === null ? null : { type: "region", index });
         }
-        if (o === undefined || o === null) return setHover(null);
-        if (id === "regions") setHover({ type: "region", index: o.i });
-        else if (id === "file-dots" || id === "file-boxes") setHover({ type: "file", index: o });
-        else if (id === "symbols") setHover({ type: "symbol", id: o.id, file: o.file });
-        else setHover(null);
+        if (o === undefined || o === null) return updateHover(null);
+        if (id === "regions") updateHover({ type: "region", index: o.i });
+        else if (id === "file-dots" || id === "file-boxes") updateHover({ type: "file", index: o });
+        else if (id === "symbols") updateHover({ type: "symbol", id: o.id, file: o.file });
+        else updateHover(null);
       }}
       onClick={(info: any) => {
         const o = info.object, id = info.layer?.id;

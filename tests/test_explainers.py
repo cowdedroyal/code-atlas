@@ -153,7 +153,7 @@ def test_build_lists_cards_and_packs_pages(tmp_path):
     out = tmp_path / "site"
     result = build_site(repo, out, refresh_index=False)
     assert result["explainers"] == 1
-    assert (out / "data" / "explainers" / "user-flow.html").read_text("utf-8") == page
+    assert json.loads((out / "data" / "explainers" / "user-flow.json").read_text("utf-8")) == page
 
 
 def test_build_skips_a_card_that_no_longer_lints(tmp_path):

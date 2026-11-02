@@ -1,4 +1,5 @@
 import json
+import os
 
 from code_atlas.scan import scan
 from code_atlas.site import build_data
@@ -107,3 +108,25 @@ def test_site_manifest_never_deletes_outside_the_output(tmp_path):
     (out / ".codeatlas-site.json").write_text(json.dumps({"version": 1, "entries": hostile}), encoding="utf-8")
     assert build_site(tmp_path, out)["ok"]
     assert (victim / "deep" / "keep.txt").exists() and (out / "data" / "graph.json").exists()
+
+
+def _link_dir(link, target):
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))  # no privilege needed, unlike a symlink
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def test_build_never_writes_through_a_link_inside_the_repository(tmp_path):
+    repo, victim = tmp_path / "repo", tmp_path / "victim"
+    write(repo, REPO)
+    scan(repo)
+    (victim / "data").mkdir(parents=True)
+    (victim / "index.html").write_text("mine", encoding="utf-8")
+    (victim / "data" / "keep.txt").write_text("keep", encoding="utf-8")
+    site = repo / ".codemap" / "cache" / "site"  # a cloned repository can commit this as a link
+    _link_dir(site, victim)
+    report = build_site(repo, site, force=True)  # what serve does with its own cache site
+    assert not report["ok"] and "symlink or junction" in report["errors"][0]
+    assert (victim / "index.html").read_text(encoding="utf-8") == "mine" and (victim / "data" / "keep.txt").exists()

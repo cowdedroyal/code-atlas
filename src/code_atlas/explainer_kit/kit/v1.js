@@ -5,6 +5,7 @@
  *   card → host  {type:"atlas:ready", kit:1}
  *                {type:"atlas:height", height:<px>}          whenever the content size changes
  *                {type:"atlas:open", target:"<path>#<symbol>"} when an atlas://… link is clicked
+ *                {type:"atlas:close"}                         on Escape outside cinema mode
  */
 (function () {
   "use strict";
@@ -1331,6 +1332,12 @@
     } else if (e.key === "ArrowRight") { e.preventDefault(); jumpCinema(1); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); jumpCinema(-1); }
   });
+
+  // The viewer is a different document, so key events inside the card never reach its Escape handler. Outside
+  // cinema mode the card is not using Escape itself, so forward it; in cinema mode the listener above exits instead.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !document.body.classList.contains("ex-cinema-on")) post({ type: "atlas:close" });
+  }, true);
 
 
   function init() {
