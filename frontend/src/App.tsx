@@ -96,6 +96,13 @@ export default function App() {
     setVs(fitView(cur, size, 0.75, free));
   }, [graph, size, requestChunks, actualPanelWidth]);
 
+  // Stable so the reader's Escape listener is not torn down and rebuilt on every App render.
+  const closeReader = useCallback(() => setReading(null), []);
+  const openCard = useCallback((id: string) => {
+    const c = graph?.explainers?.find((x) => x.id === id);
+    if (c) setReading(c);
+  }, [graph]);
+
   if (error) return <div className="splash">{error}</div>;
   if (!graph) return <div className="splash">{t("loading")}</div>;
   const root = graph.regions.find((r) => r.parent === null)!;
@@ -128,8 +135,8 @@ export default function App() {
         <button className="fit" onClick={() => { setSelection(null); setVs(fitView(root.box, size)); }}>{t("fit")}</button>
       </header>
       {activeTour && <TourBar tour={activeTour.tour} step={activeTour.step} go={(s) => goStep(tourAt!.i, s)}
-                              exit={() => setTourAt(null)}
-                              openCard={(id) => { const c = graph.explainers?.find((x) => x.id === id); if (c) setReading(c); }} />}
+                              exit={() => setTourAt(null)} paused={!!reading}
+                              openCard={openCard} />}
       <footer className="legend" style={activeTour ? { display: "none" } : undefined}>
         <div className="legend-row">
           <span className="legend-title">{t("roles")}</span>
@@ -150,7 +157,7 @@ export default function App() {
       </footer>
       {selection && <Panel graph={graph} chunks={chunks} selection={selection} navigate={navigate} close={() => setSelection(null)}
                            width={actualPanelWidth} setWidth={setPanelWidth} openCard={setReading} />}
-      {reading && <ExplainerReader card={reading} graph={graph} dark={dark} close={() => setReading(null)} navigate={navigate} />}
+      {reading && <ExplainerReader card={reading} graph={graph} dark={dark} close={closeReader} navigate={navigate} />}
     </div>
   );
 }

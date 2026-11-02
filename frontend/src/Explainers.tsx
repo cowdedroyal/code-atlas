@@ -53,6 +53,15 @@ function scaleFor(width: number): number {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/** Runs inside the sandboxed card, whose key events never reach this page: forward Escape as a message. */
+const ESCAPE_SHIM = '<script>window.addEventListener("keydown",function(e){' +
+  'if(e.key!=="Escape"||document.body.classList.contains("ex-cinema-on"))return;' +
+  'parent.postMessage({type:"atlas:close"},"*");},true);</script>';
+const withEscapeShim = (html: string) => {  // the last </body>: card text or JSON data may contain the string too
+  const end = html.lastIndexOf("</body>");
+  return end < 0 ? html + ESCAPE_SHIM : html.slice(0, end) + ESCAPE_SHIM + html.slice(end);
+};
+
 /** Keeps a box inside the viewport and above the minimum size (or the viewport, if that is smaller). */
 function fit(b: Box): Box {
   const w = Math.min(window.innerWidth, Math.max(MIN_W, b.w)), h = Math.min(window.innerHeight, Math.max(MIN_H, b.h));
@@ -86,6 +95,7 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   scaleRef.current = scale;
   const [cinema, setCinema] = useState(false);
   const drag = useRef<{ handle: Handle; x: number; y: number; start: Box } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const language = card.language ?? graph.meta.language;
 
   // The card kit takes a scale (<html> rem size); track the reader width so resizing enlarges its text too.
@@ -112,10 +122,31 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
     return () => window.removeEventListener("resize", on);
   }, []);
 
+  // Pointer capture is not delivered across the sandboxed frame's process, so the drag also listens on the window;
+  // `.dragging` disables the frame's pointer-events so moves over the card reach the page at all.
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => {
+      const d = drag.current;
+      if (d) setBox(resized(d.start, d.handle, e.clientX - d.x, e.clientY - d.y));
+    };
+    const end = () => { drag.current = null; setDragging(false); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", end);
+    };
+  }, [dragging]);
+
   useEffect(() => {
     let live = true;
     setHtml(undefined);
-    loadCard(card.id).then((h) => live && setHtml(h));
+    loadCard(card.id).then((h) => live && setHtml(h === null ? null : withEscapeShim(h)));
     return () => { live = false; };
   }, [card.id]);
 
@@ -126,6 +157,8 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow) return;
+      // Escape pressed while focus is inside the card, forwarded by ESCAPE_SHIM.
+      if (e.data && typeof e.data === "object" && (e.data as Record<string, unknown>).type === "atlas:close") { close(); return; }
       const msg = parseCardMessage(e.data);
       if (!msg) return;
       if (msg.type === "atlas:ready") sendTheme();
@@ -149,19 +182,21 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Capture phase: the tour bar also listens on window. A card opened from a tour closes first, not the tour.
+      e.stopImmediatePropagation();
       if (cinema) {
         frame.current?.contentWindow?.postMessage({ type: "atlas:cinema", on: false }, "*");
         setCinema(false);
       } else close();
     };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
+    window.addEventListener("keydown", on, true);
+    return () => window.removeEventListener("keydown", on, true);
   }, [close, cinema]);
 
   return (
     <div className={`reader-backdrop${cinema ? " cinema" : ""}`}
          onMouseDown={(e) => { if (e.target === e.currentTarget && !cinema) close(); }}>
-      <div className={`reader${box && !cinema ? " sized" : ""}${cinema ? " cinema" : ""}`} ref={dialog} role="dialog"
+      <div className={`reader${box && !cinema ? " sized" : ""}${cinema ? " cinema" : ""}${dragging ? " dragging" : ""}`} ref={dialog} role="dialog"
            aria-modal="true" aria-label={card.title}
            style={cinema ? undefined : box ? { left: box.x, top: box.y, width: box.w, height: box.h } : undefined}>
         {!cinema && HANDLES.map((handle) => (
@@ -171,14 +206,15 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
                  e.preventDefault();
                  const r = dialog.current.getBoundingClientRect();
                  drag.current = { handle, x: e.clientX, y: e.clientY, start: { x: r.left, y: r.top, w: r.width, h: r.height } };
+                 setDragging(true);
                  e.currentTarget.setPointerCapture(e.pointerId);
                }}
-               onPointerMove={(e) => {
-                 const d = drag.current;
-                 if (d && d.handle === handle) setBox(resized(d.start, handle, e.clientX - d.x, e.clientY - d.y));
+               onPointerUp={(e) => {
+                 drag.current = null;
+                 setDragging(false);
+                 if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
                }}
-               onPointerUp={(e) => { drag.current = null; e.currentTarget.releasePointerCapture(e.pointerId); }}
-               onLostPointerCapture={() => { drag.current = null; }}
+               onLostPointerCapture={() => { drag.current = null; setDragging(false); }}
                onDoubleClick={() => setBox(null)} />
         ))}
         <header className="reader-head">
