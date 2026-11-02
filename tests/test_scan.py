@@ -221,3 +221,63 @@ def test_js_default_export_with_several_exports(tmp_path):
     })
     scan(tmp_path)
     assert ("src/App.tsx#App", "src/View.tsx#View", "calls") in edges(tmp_path)
+
+
+def test_failed_extraction_is_not_cached(repo, monkeypatch):
+    import code_atlas.scan as scan_mod
+    real = scan_mod.extract
+
+    def flaky(path, lang, tier, text):
+        if path == "app/util.py":
+            raise RuntimeError("grammar unavailable")
+        return real(path, lang, tier, text)
+
+    monkeypatch.setattr(scan_mod, "extract", flaky)
+    rep = scan(repo)
+    assert any("app/util.py" in f for f in rep.failed)
+    assert not db(repo).execute("select 1 from facts_cache where path = 'app/util.py'").fetchone()
+    monkeypatch.setattr(scan_mod, "extract", real)
+    rep = scan(repo)
+    assert rep.parsed == 1 and not rep.failed
+    assert db(repo).execute("select count(*) from symbols where path = 'app/util.py'").fetchone()[0] > 0
+
+
+def test_write_edges_noop_rescan_writes_nothing():
+    from code_atlas.scan import _write_edges
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    c.execute("create table edges (src text, dst text, type text, conf real, via text, count integer)")
+    rows = [("a", "b", "calls", 1.0, None, 1), ("a", "c", "calls", 0.8, "x", 2)]
+    _write_edges(c, rows)
+    before = c.total_changes
+    _write_edges(c, rows)
+    assert c.total_changes == before  # identical rows take the diff path and touch nothing
+
+
+def test_write_edges_diff_deletes_null_via_rows():
+    from code_atlas.scan import _write_edges
+    c = sqlite3.connect(":memory:")
+    c.execute("create table edges (src text, dst text, type text, conf real, via text, count integer)")
+    rows = [(f"s{i}", "d", "calls", 1.0, None, 1) for i in range(10)]
+    _write_edges(c, rows)
+    _write_edges(c, rows[1:])
+    assert c.execute("select count(*) from edges").fetchone()[0] == 9
+
+
+def test_sys_path_value_with_backslash_keeps_facts(tmp_path):
+    write(tmp_path, {
+        "tools/run.py": r'''
+            import os
+            import sys
+            LIB = os.path.join(os.path.dirname(__file__), r"..\lib")
+            sys.path.insert(0, LIB)
+
+
+            def main():
+                pass
+        ''',
+    })
+    rep = scan(tmp_path)
+    assert not rep.failed, rep.failed
+    row = db(tmp_path).execute("select count(*) from symbols where path = 'tools/run.py' and name = 'main'").fetchone()
+    assert row[0] == 1

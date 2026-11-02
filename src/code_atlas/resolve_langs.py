@@ -38,7 +38,7 @@ class LangImports:
     def _lang_indexes(self):
         # Go modules: directory → module path
         self.go_mods: dict[str, str] = {}
-        for p in self.paths:
+        for p in sorted(self.paths):
             if posixpath.basename(p) == "go.mod":
                 try:
                     text = (self.root / p).read_text("utf-8", "replace")
@@ -49,7 +49,7 @@ class LangImports:
                     self.go_mods[posixpath.dirname(p)] = m.group(1)
         # C# namespaces → files that declare them
         self.ns_files: dict[str, list[str]] = defaultdict(list)
-        for p, fx in self.facts.items():
+        for p, fx in sorted(self.facts.items()):
             for ns in fx.get("namespaces", []):
                 self.ns_files[ns].append(p)
         # Rust crates: directory of each Cargo.toml
@@ -57,7 +57,7 @@ class LangImports:
                              key=len, reverse=True)
         # C/C++: definitions in source files, by qualified name, for header → definition redirects
         self.c_defs: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for p, fx in self.facts.items():
+        for p, fx in sorted(self.facts.items()):
             if self.files[p].lang in C_LANGS and not p.endswith(HEADER_EXT):
                 for s in fx["symbols"]:
                     if s["k"] in ("function", "method"):
@@ -209,7 +209,7 @@ class LangImports:
             rel = posixpath.normpath(posixpath.join(posixpath.dirname(path), spec))
             target = rel if rel in self.facts else None
             if target is None:
-                hits = [p for p in self.facts if p == spec or p.endswith("/" + spec)]
+                hits = [p for p in sorted(self.facts) if p == spec or p.endswith("/" + spec)]
                 if hits:  # longest shared directory prefix with the includer wins
                     target = max(hits, key=lambda h: (len(posixpath.commonprefix([h, path])), -len(h)))
             if target:

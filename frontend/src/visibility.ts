@@ -1,4 +1,4 @@
-import type { Box, Graph, Level, LevelLock, NodeRef } from "./types";
+import type { Box, Graph, Level, LevelLock, NodeRef, Relation, Selection } from "./types";
 
 export const FILE_BOX_PX = 70;
 export const DOT_REGION_PX = 180;
@@ -46,6 +46,11 @@ export function focusedRegionEdges(graph: Graph, visible: Set<number>, active: n
   return active === null ? edges.slice(0, 40) : edges;
 }
 
-export function relationTouchesRegion(src: NodeRef, dst: NodeRef, active: number | null): boolean {
-  return active === null || (src.t === "region" && src.i === active) || (dst.t === "region" && dst.i === active);
+export function relationTouchesNode(rel: Relation, active: Selection): boolean {
+  if (!active) return true;
+  const hit = (r: NodeRef): boolean =>
+    active.type === "region" ? r.t === "region" && r.i === active.index
+    : active.type === "file" ? (r.t === "file" && r.i === active.index) || (r.t === "symbol" && r.file === active.index)
+    : r.t === "symbol" && (r.id === active.id || r.id.startsWith(active.id + "."));
+  return hit(rel.src) || hit(rel.dst);
 }

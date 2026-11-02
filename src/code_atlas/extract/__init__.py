@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-EXTRACTOR_VERSION = 6
+EXTRACTOR_VERSION = 7
 
 _WS = re.compile(r"\s+")
 

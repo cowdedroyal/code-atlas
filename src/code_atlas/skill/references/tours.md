@@ -46,9 +46,25 @@ that region).
 If `validate` says there is no path, don't drop the check by switching to a file-level step: either add the
 step in between, or find out why the link is invisible and record it.
 
+## Hanging a step card
+
+A step may name an explainer card:
+
+```json
+{"at": "pointcept/engines/train.py#Trainer.__init__", "text": "Assembles model, data, optimiser and hooks.",
+ "card": "stage1-trainer-init"}
+```
+
+The card must already be applied, and one of its anchors must cover the step: the symbol itself, a symbol inside it,
+or the file that holds it. `validate` rejects a card whose anchors explain somewhere else. In the viewer the step then
+shows *Explain this step*, which opens that card without leaving the tour. Keep one card per step, and keep it small
+(10–20 frames): the point of the tour is that the reader loads one step at a time, not one enormous page.
+
 ## Keeping tours true
 
 Each step is anchored to its code. When a step's code changes the tour shows as `stale`; when consecutive
 steps stop being connected it is `broken`; both appear under `agenda --type refresh` as `tour:<id>`.
-Re-read and repair the steps, then validate/apply and check the refresh agenda. Use `{"op":"confirm","id":"<tour-id>"}` for a still-correct tour; confirmation checks connectivity
+Re-read and repair the steps, then validate/apply and check the refresh agenda. `codeatlas tours` lists every step
+with its kind (file or symbol), the file's symbol count, and its card — a file step with many symbols is the first
+thing to split, and a missing or mis-anchored card shows up before a reader hits it. Use `{"op":"confirm","id":"<tour-id>"}` for a still-correct tour; confirmation checks connectivity
 and refreshes all step anchors. An unchanged upsert keeps its prior anchors.

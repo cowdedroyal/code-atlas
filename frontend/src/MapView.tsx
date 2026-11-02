@@ -4,7 +4,7 @@ import { LinearInterpolator, OrthographicView } from "@deck.gl/core";
 import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import type { Box, Chunk, FileNode, Graph, Level, LevelLock, NodeRef, Region, Relation, Selection, SymbolNode, SymEdge, Tour } from "./types";
 import { DARK_INK, EDGE_COLOR, INK as LIGHT_INK, ROLE_COLOR, rgba, type RGBA } from "./palette";
-import { focusedRegionEdges, intersects, refAtLevel, regionAtPoint, relationTouchesRegion, visibleFiles } from "./visibility";
+import { focusedRegionEdges, intersects, refAtLevel, regionAtPoint, relationTouchesNode, visibleFiles } from "./visibility";
 import { MAP_FONT } from "./mapFont";
 import { symbolName } from "./symbolName";
 import { bundledFilePath } from "./bundledPath";
@@ -169,22 +169,19 @@ export default function MapView(p: Props) {
     const readable = (r: NodeRef, b: Box) => r.t === "region"
       ? b[2] * scale >= 40 : r.t === "file" ? dotFiles.includes(r.i) : b[2] * scale >= SYMBOL_PX;
     const rels = graph.relations.map((rel) => {
-      if (p.tour || !refAtLevel(rel.src, level) || !refAtLevel(rel.dst, level)) return null;
-      if (level === 0 && !relationTouchesRegion(rel.src, rel.dst, activeRegion)) return null;
+      if (p.tour || !refAtLevel(rel.src, level) || !refAtLevel(rel.dst, level) || !relationTouchesNode(rel, active)) return null;
       const a = refBox(rel.src), b = refBox(rel.dst);
       if (!a || !b || (activeRegion === null && (!readable(rel.src, a) || !readable(rel.dst, b))) || (!inView(a) && !inView(b))) return null;
       const path = curve(center(a), center(b), 0.12);
       return { rel, path, mid: path[7], end: path[path.length - 1] };
     }).filter(Boolean) as { rel: Relation; path: [number, number][]; mid: [number, number]; end: [number, number] }[];
-    const dim = activeFile !== null ? 90 : 210;
     L.push(new PathLayer({
       id: "relations", data: rels, pickable: true, getPath: (d: any) => d.path, widthUnits: "pixels",
-      getWidth: 2.2, getColor: (d: any) => rgba(RELATION_INK, d.rel.stale ? 90 : dim), capRounded: true,
-      updateTriggers: { getColor: dim },
+      getWidth: 2.2, getColor: (d: any) => rgba(RELATION_INK, d.rel.stale ? 90 : 210), capRounded: true,
     }));
     L.push(new ScatterplotLayer({
-      id: "relation-ends", data: rels, getPosition: (d: any) => d.end, getFillColor: rgba(RELATION_INK, dim),
-      getRadius: 3.2, radiusUnits: "pixels", updateTriggers: { getFillColor: dim },
+      id: "relation-ends", data: rels, getPosition: (d: any) => d.end, getFillColor: rgba(RELATION_INK, 210),
+      getRadius: 3.2, radiusUnits: "pixels",
     }));
 
     // --- file boxes and symbols (L2) ------------------------------------------------------------

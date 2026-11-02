@@ -9,6 +9,12 @@ export async function loadGraph(): Promise<Graph> {
   return r.json();
 }
 
+// a packed explainer card (a full HTML page); null when it cannot be fetched
+export function loadCard(id: string): Promise<string | null> {
+  return fetch(`${base}explainers/${encodeURIComponent(id)}.html`, { cache: "no-cache" })
+    .then((r) => (r.ok ? r.text() : null)).catch(() => null);
+}
+
 const chunkCache = new Map<number, Promise<Chunk>>();
 export function loadChunk(i: number): Promise<Chunk> {
   if (!chunkCache.has(i)) chunkCache.set(i, fetch(`${base}chunks/${i}.json`, { cache: "no-cache" }).then((r) => r.json()));

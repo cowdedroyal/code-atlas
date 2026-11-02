@@ -24,10 +24,15 @@ export interface Relation {
 }
 
 export interface TourStep {
-  at: string; ref: NodeRef; text: string; box: Box; hops: [number, number][]; from?: number; via_relation?: string; state?: string;
+  at: string; ref: NodeRef; text: string; box: Box; hops: [number, number][]; from?: number; via_relation?: string; card?: string; state?: string;
 }
 
 export interface Tour { id: string; title: string; summary?: string; steps: TourStep[]; state?: string }
+
+export interface Explainer {
+  id: string; title: string; summary: string; questions: string[]; anchors: string[]; tags: string[];
+  language: string | null; at: string | null; state?: "stale" | "orphan"; stale_nodes?: string[];
+}
 
 export interface Graph {
   version: string;
@@ -41,6 +46,7 @@ export interface Graph {
   chunks: number;
   relations: Relation[];
   tours: Tour[];
+  explainers?: Explainer[];
 }
 
 export interface SymbolNode {

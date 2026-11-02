@@ -78,12 +78,26 @@ def agenda(repo: Path, limit: int = 20, types: list[str] | None = None, idx: Ind
         tasks.append({"type": "refresh", "target": nid, "reason": f"{why}: the code it describes changed" if why == "stale"
                       else f"{why}: the code it points to no longer exists",
                       "hint": f"codeatlas show {sem.relations[nid]['src'] if nid in sem.relations else nid} --code"})
-    for tid, st in tour_status(idx, sem).items():
+    from .explainers import card_status, load_cards
+    for cid, st in card_status(idx, sem, load_cards(repo)).items():
+        if st["state"] == "orphan":
+            hint = (f"copy .codemap/explainers/{cid}/card.yaml to a draft, re-anchor it and `codeatlas card apply <dir>`, "
+                    f"or `codeatlas card delete {cid}`")
+        else:  # stale: read the changed code before confirming, or the stale flag clears without a review
+            hint = (f"codeatlas show {st['nodes'][0]} --code, then `codeatlas card apply <dir>` or "
+                    f"`codeatlas card confirm {cid}`")
+        tasks.append({"type": "refresh", "target": f"card:{cid}", "reason": {
+            "stale": "card: the code it explains changed", "orphan": "card: code it explains no longer exists"}[st["state"]],
+            "anchors": st["nodes"][:6], "hint": hint})
+    for tid, st in tour_status(idx, sem, load_cards(repo)).items():
         if st["state"]:
             bad = [sem.tours[tid]["steps"][i]["at"] for i, s in enumerate(st["steps"]) if s]
-            tasks.append({"type": "refresh", "target": f"tour:{tid}", "reason": {
-                "stale": "tour: the code of some steps changed", "orphan": "tour: a step's code no longer exists",
-                "broken": "tour: two consecutive steps are no longer connected"}[st["state"]],
+            reason = {"stale": "tour: the code of some steps changed",
+                      "orphan": "tour: a step's code no longer exists",
+                      "broken": "tour: two consecutive steps are no longer connected"}[st["state"]]
+            if st["state"] == "broken" and "card" in st["problem_kinds"]:
+                reason = "tour: a step's card is missing or explains another step"
+            tasks.append({"type": "refresh", "target": f"tour:{tid}", "reason": reason,
                 "steps": bad[:6], "problems": st["problems"][:3], "hint": f"codeatlas path <step> <next step>"})
     if sem.regions and len(sem.tours) < 3:
         cands = tour_candidates(idx, sem)

@@ -1,0 +1,3 @@
+[submodule "extensions/atlas-explainer"]
+	path = extensions/atlas-explainer
+	url = https://github.com/cowdedroyal/atlas-explainer.git

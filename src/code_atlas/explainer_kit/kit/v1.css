@@ -1,0 +1,384 @@
+/* atlas-explainer kit v1 — stylesheet.
+ * Colours come from CSS variables so the host can switch light/dark with
+ * <html data-theme="light|dark">; without a host the system preference applies. */
+
+:root {
+  --ex-bg: #fbfbf9;
+  --ex-surface: #f2f2ee;
+  --ex-fg: #1d2127;
+  --ex-muted: #667085;
+  --ex-line: #dcdcd4;
+  --ex-accent: #2a6f97;
+  --ex-accent-soft: #e3eef5;
+  --ex-add: #1f7a4d;
+  --ex-add-bg: #dff3e7;
+  --ex-del: #b3402f;
+  --ex-del-bg: #f8e1dc;
+  --ex-warn: #9a6700;
+  --ex-warn-bg: #fbf0d3;
+  --ex-real: #1f7a4d;
+  --ex-scale: 1;
+  --ex-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --ex-sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ex-bg: #14171b; --ex-surface: #1c2025; --ex-fg: #e4e6ea; --ex-muted: #98a2b3; --ex-line: #2f353d;
+    --ex-accent: #6aa9cf; --ex-accent-soft: #1d2d38;
+    --ex-add: #5bc08a; --ex-add-bg: #17301f; --ex-del: #ec8b7a; --ex-del-bg: #3a1f1a;
+    --ex-warn: #e0b04a; --ex-warn-bg: #33290f; --ex-real: #5bc08a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ex-bg: #14171b; --ex-surface: #1c2025; --ex-fg: #e4e6ea; --ex-muted: #98a2b3; --ex-line: #2f353d;
+  --ex-accent: #6aa9cf; --ex-accent-soft: #1d2d38;
+  --ex-add: #5bc08a; --ex-add-bg: #17301f; --ex-del: #ec8b7a; --ex-del-bg: #3a1f1a;
+  --ex-warn: #e0b04a; --ex-warn-bg: #33290f; --ex-real: #5bc08a;
+  color-scheme: dark;
+  background: var(--ex-bg);
+}
+
+/* Legacy stepper cards were authored light-only. Keep their layout, but in dark mode let the page follow
+ * the theme: the card's own paper is inverted with a hue rotation so diagrams keep their accent colours. */
+body.ex-legacy { background: var(--ex-bg); }
+:root[data-theme="dark"] body.ex-legacy .ex-legacy-paper { filter: invert(1) hue-rotate(180deg); }
+:root[data-theme="dark"] body.ex-legacy.ex-cinema-on .ex-cinema-stage { filter: invert(1) hue-rotate(180deg); }
+
+html { font-size: calc(16px * var(--ex-scale)); }
+body {
+  margin: 0; padding: 1.25rem 1.5rem 2.5rem; max-width: 46rem;
+  background: var(--ex-bg); color: var(--ex-fg);
+  font: 400 1rem/1.7 var(--ex-sans);
+  overflow-wrap: anywhere;
+}
+h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 .4rem; }
+h2 { font-size: 1.2rem; line-height: 1.35; margin: 2.2rem 0 .6rem; padding-top: .9rem; border-top: 1px solid var(--ex-line); }
+h3 { font-size: 1.02rem; margin: 1.4rem 0 .4rem; }
+p, ul, ol { margin: .6rem 0; }
+a { color: var(--ex-accent); }
+code, kbd, samp { font: .88em/1.5 var(--ex-mono); background: var(--ex-surface); padding: .08em .35em; border-radius: 4px; }
+pre { font: .86rem/1.55 var(--ex-mono); background: var(--ex-surface); padding: .7rem .9rem; border-radius: 6px; overflow-x: auto; margin: .6rem 0; }
+pre code { background: none; padding: 0; }
+.ex-lead { color: var(--ex-muted); margin-top: 0; }
+
+/* ---- plain tables -------------------------------------------------- */
+table { border-collapse: collapse; font-size: .88rem; width: 100%; }
+th, td { border: 1px solid var(--ex-line); padding: .3rem .6rem; text-align: left; vertical-align: top; }
+th { background: var(--ex-surface); font-weight: 600; white-space: nowrap; }
+td { font-family: var(--ex-mono); font-size: .84rem; }
+
+/* ---- <ex-qa q="…"> : a reader's question and its answer ----------------- */
+ex-qa { display: block; margin: 2rem 0 .5rem; }
+ex-qa::before {
+  content: attr(q);
+  display: block; font-size: 1.12rem; font-weight: 650; line-height: 1.4;
+  padding: .55rem .8rem; border-left: 3px solid var(--ex-accent); background: var(--ex-accent-soft); border-radius: 0 6px 6px 0;
+  margin-bottom: .6rem;
+}
+
+/* ---- <ex-table source="real|illustrative" origin="…" at="…"> ----------------- */
+ex-table { display: block; margin: .9rem 0; border: 1px solid var(--ex-line); border-radius: 6px; overflow: hidden; }
+ex-table > table { border: 0; margin: 0; }
+ex-table > table :is(th, td) { border-left: 0; border-right: 0; }
+ex-table > table tr:last-child td { border-bottom: 0; }
+ex-table .ex-scroll { overflow-x: auto; }
+ex-table .ex-badge, ex-chart .ex-badge, ex-anim .ex-badge, ex-scene .ex-badge {
+  display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: baseline;
+  padding: .3rem .7rem; font-size: .78rem; line-height: 1.5; border-bottom: 1px solid var(--ex-line);
+}
+ex-table .ex-badge b, ex-chart .ex-badge b, ex-anim .ex-badge b, ex-scene .ex-badge b { font-weight: 650; }
+ex-table .ex-badge span, ex-chart .ex-badge span, ex-anim .ex-badge span, ex-scene .ex-badge span { color: var(--ex-muted); }
+ex-table[source="real"] .ex-badge, ex-chart[source="real"] .ex-badge, ex-anim[source="real"] .ex-badge,
+ex-scene[source="real"] .ex-badge { background: var(--ex-add-bg); color: var(--ex-real); }
+ex-table[source="illustrative"] .ex-badge, ex-chart[source="illustrative"] .ex-badge, ex-anim[source="illustrative"] .ex-badge,
+ex-scene[source="illustrative"] .ex-badge { background: var(--ex-warn-bg); color: var(--ex-warn); }
+ex-table:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-chart:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-anim:not([source="real"]):not([source="illustrative"]) .ex-badge,
+ex-scene:not([source="real"]):not([source="illustrative"]) .ex-badge { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-table .ex-cap { padding: .35rem .7rem; font-size: .8rem; color: var(--ex-muted); border-top: 1px solid var(--ex-line); }
+
+/* ---- <ex-flow> / <ex-stage title tag> : one thing travelling through stages ---- */
+ex-flow { display: block; margin: 1rem 0; counter-reset: ex-stage; position: relative; }
+ex-stage { display: block; position: relative; counter-increment: ex-stage; margin: 0 0 .9rem 2.2rem; }
+ex-stage::before {            /* the line down the left, drawn per stage so it ends at the last one */
+  content: ""; position: absolute; left: -1.45rem; top: 1.9rem; bottom: -1.05rem; width: 2px; background: var(--ex-line);
+}
+ex-stage:last-child::before { display: none; }
+ex-stage .ex-head {
+  all: unset; box-sizing: border-box; display: flex; width: 100%; gap: .6rem; align-items: baseline; cursor: pointer;
+  padding: .45rem .7rem; border: 1px solid var(--ex-line); border-radius: 6px; background: var(--ex-surface);
+}
+ex-stage .ex-head:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+ex-stage .ex-head::before {
+  content: counter(ex-stage); position: absolute; left: -2.2rem; top: .2rem;
+  width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--ex-accent); color: var(--ex-bg);
+  font: 650 .8rem/1.6rem var(--ex-sans); text-align: center;
+}
+ex-stage .ex-title { font-weight: 650; flex: 1; }
+ex-stage .ex-tag { font: .76rem var(--ex-mono); color: var(--ex-muted); }
+ex-stage .ex-caret { color: var(--ex-muted); transition: transform .15s; }
+ex-stage[data-open="false"] .ex-caret { transform: rotate(-90deg); }
+ex-stage[data-open="false"] .ex-body { display: none; }
+ex-stage .ex-body { padding: .6rem .2rem 0; }
+ex-stage .ex-io { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: .2rem 0 .6rem; }
+@media (max-width: 34rem) { ex-stage .ex-io { grid-template-columns: 1fr; } }
+ex-in, ex-out { display: block; min-width: 0; border: 1px solid var(--ex-line); border-radius: 6px; padding: .45rem .7rem .5rem; }
+ex-in::before, ex-out::before { display: block; font-size: .74rem; font-weight: 650; letter-spacing: .04em; color: var(--ex-muted); margin-bottom: .2rem; }
+ex-in::before { content: "IN"; } ex-out::before { content: "OUT"; }
+:root[lang^="zh"] ex-in::before { content: "进来"; } :root[lang^="zh"] ex-out::before { content: "出去"; }
+ex-in pre, ex-out pre { margin: .2rem 0 0; }
+ex-why { display: block; padding: .4rem .7rem; border-left: 3px solid var(--ex-warn); background: var(--ex-warn-bg); border-radius: 0 6px 6px 0; }
+ex-why::before { content: "WHY  "; font-size: .74rem; font-weight: 650; letter-spacing: .04em; color: var(--ex-warn); }
+:root[lang^="zh"] ex-why::before { content: "为什么  "; }
+
+/* ---- <ex-compare><ex-before>…</ex-before><ex-after>…</ex-after></ex-compare> --- */
+ex-compare { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: .9rem 0; }
+@media (max-width: 34rem) { ex-compare { grid-template-columns: 1fr; } }
+ex-before, ex-after { display: block; min-width: 0; border: 1px solid var(--ex-line); border-radius: 6px; overflow: hidden; }
+ex-before::before, ex-after::before {
+  display: block; padding: .25rem .7rem; font-size: .76rem; font-weight: 650; letter-spacing: .04em;
+  border-bottom: 1px solid var(--ex-line); background: var(--ex-surface); color: var(--ex-muted);
+}
+ex-before::before { content: attr(label); } ex-after::before { content: attr(label); }
+ex-before:not([label])::before { content: "BEFORE"; } ex-after:not([label])::before { content: "AFTER"; }
+:root[lang^="zh"] ex-before:not([label])::before { content: "处理前"; }
+:root[lang^="zh"] ex-after:not([label])::before { content: "处理后"; }
+ex-before pre, ex-after pre { margin: 0; border-radius: 0; white-space: pre-wrap; }
+ex-before del, ex-after ins { text-decoration: none; border-radius: 3px; padding: 0 1px; }
+ex-before del { background: var(--ex-del-bg); color: var(--ex-del); }
+ex-after ins { background: var(--ex-add-bg); color: var(--ex-add); }
+
+/* ---- <ex-anim src="atlas-media:…"> : a baked frame animation ------------------ */
+ex-anim { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-anim .ex-badge, ex-scene .ex-badge, ex-chart .ex-badge { border-bottom: 1px solid var(--ex-line); }
+ex-anim figure, ex-chart figure { margin: 0; }
+ex-anim .ex-anim-view {
+  position: relative; width: 100%; background: var(--ex-surface); overflow: hidden;
+  border-bottom: 1px solid var(--ex-line);
+}
+ex-anim .ex-anim-view canvas { display: block; width: 100%; height: auto; cursor: pointer; }
+ex-anim .ex-anim-bar { display: flex; align-items: center; gap: .6rem; padding: .35rem .6rem; background: var(--ex-surface); }
+ex-anim .ex-play {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none;
+  min-width: 2rem; height: 1.7rem; padding: 0 .45rem; border-radius: 5px; border: 1px solid var(--ex-line);
+  background: var(--ex-bg); color: var(--ex-fg); font: 600 .8rem/1.6rem var(--ex-sans); text-align: center;
+}
+ex-anim .ex-play:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+ex-anim .ex-play:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+ex-anim .ex-scrub { flex: 1 1 auto; min-width: 4rem; accent-color: var(--ex-accent); margin: 0; }
+ex-anim .ex-count {
+  flex: none; font: .74rem var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums;
+  min-width: 4.5rem; text-align: right;
+}
+ex-anim .ex-cap, ex-chart .ex-cap {
+  padding: .4rem .7rem .5rem; font-size: .8rem; line-height: 1.55; color: var(--ex-muted);
+  border-top: 1px solid var(--ex-line); background: var(--ex-bg);
+}
+ex-anim .ex-cap:empty, ex-chart .ex-cap:empty { display: none; }
+ex-anim .ex-missing, ex-chart .ex-missing { margin: 0; padding: .7rem; font-size: .85rem; color: var(--ex-del); background: var(--ex-del-bg); }
+
+/* ---- <ex-chart src="atlas-media:…"> : a baked Vega-Lite chart --------------- */
+ex-chart { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-chart .ex-chart-body { position: relative; padding: .5rem .6rem .35rem; background: var(--ex-bg); }
+ex-chart .ex-chart-canvas { position: relative; width: 100%; min-height: 2rem; }
+ex-chart svg, ex-chart .ex-chart-svg img { display: block; width: 100%; height: auto; max-width: 100%; }
+ex-chart .ex-chart-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) ex-chart .ex-chart-light { display: none; }
+  :root:not([data-theme="light"]) ex-chart .ex-chart-dark { display: block; }
+}
+:root[data-theme="dark"] ex-chart .ex-chart-light { display: none; }
+:root[data-theme="dark"] ex-chart .ex-chart-dark { display: block; }
+ex-chart .ex-tip {
+  position: absolute; z-index: 3; max-width: 16rem; pointer-events: none;
+  padding: .35rem .5rem; border: 1px solid var(--ex-line); border-radius: 6px;
+  background: var(--ex-bg); color: var(--ex-fg); box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  font: .74rem/1.45 var(--ex-mono);
+}
+ex-chart .ex-tip-row { display: flex; gap: .5rem; justify-content: space-between; white-space: nowrap; }
+ex-chart .ex-tip-row b { font-weight: 650; color: var(--ex-muted); }
+
+/* ---- <ex-scene src="atlas-media:…"> : a click-through diagram ---------------- */
+ex-scene { display: block; margin: 1.1rem 0; border: 1px solid var(--ex-line); border-radius: 8px; overflow: hidden; }
+ex-scene figure { margin: 0; }
+ex-scene figure:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: -2px; }
+ex-scene .ex-scene-stage {
+  padding: .5rem .6rem; background: var(--ex-surface); border-bottom: 1px solid var(--ex-line); cursor: pointer;
+}
+ex-scene svg { display: block; width: 100%; height: auto; overflow: visible; }
+ex-scene .ex-node { transition: opacity .18s ease, transform .32s cubic-bezier(.2, .8, .2, 1); }
+ex-scene .ex-node.is-dim { opacity: .22; }
+ex-scene .ex-node.is-hidden { opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .18s ease, visibility 0s linear .18s; }
+ex-scene .ex-shape { fill: var(--ex-bg); stroke: var(--ex-line); stroke-width: 1.5; }
+ex-scene .is-dashed .ex-shape { stroke-dasharray: 5 4; fill: none; }
+ex-scene .ex-node, ex-scene .ex-shape, ex-scene .ex-fill { transition: opacity .18s ease, transform .32s cubic-bezier(.2,.8,.2,1),
+  width .32s cubic-bezier(.2,.8,.2,1), height .32s cubic-bezier(.2,.8,.2,1), x .32s, y .32s; }
+ex-scene .ex-label { font: 500 13px var(--ex-sans); fill: var(--ex-fg); }
+ex-scene .ex-sub { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); }
+ex-scene .t-accent .ex-shape { stroke: var(--ex-accent); stroke-width: 2; }
+ex-scene .t-accent .ex-label, ex-scene .t-accent .ex-sub { fill: var(--ex-accent); }
+ex-scene .t-own .ex-shape { fill: var(--ex-accent-soft); stroke: var(--ex-accent); }
+ex-scene .t-own .ex-label { fill: var(--ex-accent); }
+ex-scene .t-ok .ex-shape { stroke: var(--ex-add); }
+ex-scene .t-ok .ex-label { fill: var(--ex-add); }
+ex-scene .t-warn .ex-shape { stroke: var(--ex-warn); }
+ex-scene .t-warn .ex-label { fill: var(--ex-warn); }
+ex-scene .t-del .ex-shape { stroke: var(--ex-del); }
+ex-scene .t-del .ex-label { fill: var(--ex-del); }
+ex-scene .t-muted .ex-label, ex-scene .t-muted .ex-sub { fill: var(--ex-muted); }
+ex-scene .ex-track { fill: var(--ex-surface); stroke: var(--ex-line); stroke-width: 1; }
+ex-scene .ex-fill { fill: var(--ex-accent); stroke: none; }
+ex-scene .t-ok .ex-fill { fill: var(--ex-add); }
+ex-scene .t-warn .ex-fill { fill: var(--ex-warn); }
+ex-scene .t-del .ex-fill { fill: var(--ex-del); }
+ex-scene .t-muted .ex-fill { fill: var(--ex-line); }
+ex-scene .ex-node.k-bar .ex-label { fill: var(--ex-fg); }
+ex-scene .ex-node.k-bar .ex-label.ex-on-fill { fill: var(--ex-bg); }
+ex-scene .ex-node.k-bar.t-muted .ex-label.ex-on-fill { fill: var(--ex-fg); }   /* the muted fill is too pale for that */
+ex-scene .ex-arrow-head { fill: var(--ex-muted); }
+ex-scene .ex-edge { fill: none; stroke: var(--ex-muted); stroke-width: 1.4; transition: opacity .18s ease; }
+ex-scene .ex-edge.ex-dashed { stroke-dasharray: 5 4; }
+ex-scene .ex-edge.is-hidden { opacity: 0; visibility: hidden; }
+ex-scene .ex-edge-label { font: 400 10.5px var(--ex-mono); fill: var(--ex-muted); transition: opacity .18s ease; }
+ex-scene .ex-edge-label.is-hidden { opacity: 0; visibility: hidden; }
+ex-scene .ex-scene-cap { padding: .5rem .7rem .1rem; font-size: .86rem; line-height: 1.5; }
+ex-scene .ex-scene-cap b { display: block; font-weight: 650; color: var(--ex-fg); }
+ex-scene .ex-scene-cap span { color: var(--ex-muted); }
+ex-scene .ex-scene-cap span:empty { display: none; }
+ex-scene .ex-scene-bar { display: flex; align-items: center; gap: .55rem; padding: .4rem .7rem .55rem; }
+ex-scene .ex-prev, ex-scene .ex-next {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none;
+  padding: .1rem .55rem; border: 1px solid var(--ex-line); border-radius: 5px; background: var(--ex-bg);
+  font: 600 .78rem/1.7 var(--ex-sans); color: var(--ex-fg);
+}
+ex-scene .ex-prev:hover:not(:disabled), ex-scene .ex-next:hover:not(:disabled) { border-color: var(--ex-accent); color: var(--ex-accent); }
+ex-scene .ex-prev:disabled, ex-scene .ex-next:disabled { opacity: .4; cursor: default; }
+ex-scene .ex-prev:focus-visible, ex-scene .ex-next:focus-visible, ex-scene .ex-dot:focus-visible {
+  outline: 2px solid var(--ex-accent); outline-offset: 2px;
+}
+ex-scene .ex-scene-dots { display: flex; flex: 1 1 auto; gap: .3rem; align-items: center; }
+ex-scene .ex-dot {
+  all: unset; box-sizing: border-box; cursor: pointer; width: .62rem; height: .62rem; border-radius: 50%;
+  border: 1px solid var(--ex-line); background: var(--ex-bg);
+}
+ex-scene .ex-dot.is-done { background: var(--ex-accent-soft); border-color: var(--ex-accent); }
+ex-scene .ex-dot.is-on { background: var(--ex-accent); border-color: var(--ex-accent); }
+ex-scene .ex-count { font: .74rem var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums; }
+ex-scene .ex-missing { margin: 0; padding: .7rem; font-size: .85rem; color: var(--ex-del); background: var(--ex-del-bg); }
+@media (prefers-reduced-motion: reduce) {
+  ex-scene .ex-node, ex-scene .ex-edge { transition: none; }
+}
+
+/* ---- screening mode: play the card frame by frame -------------------------- */
+.ex-cinema-launchbar { display: flex; justify-content: flex-end; padding: 0 0 .35rem; }
+.ex-cinema-launch {
+  all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: .4rem;
+  padding: .35rem .8rem .35rem .65rem; border-radius: 999px; border: 1px solid var(--ex-line);
+  background: var(--ex-bg); color: var(--ex-fg); font: 600 .82rem/1.4 var(--ex-sans);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+}
+.ex-cinema-launch:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-launch:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+.ex-cinema-launch-icon { font-size: .7rem; color: var(--ex-accent); }
+
+body.ex-cinema-on { overflow: hidden !important; }
+.ex-cinema {
+  position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column;
+  background: var(--ex-bg); color: var(--ex-fg); font-family: var(--ex-sans); overflow: hidden;
+}
+.ex-cinema-shell {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  padding: clamp(.6rem, 2vh, 1.5rem) clamp(.8rem, 3vw, 3rem); gap: .5rem;
+  box-sizing: border-box;
+}
+.ex-cinema-head { display: flex; align-items: center; gap: .9rem; flex: none; min-height: 2rem; }
+.ex-cinema-kicker {
+  flex: none; padding: .1rem .5rem; border-radius: 999px; background: var(--ex-accent-soft); color: var(--ex-accent);
+  font: 700 .68rem/1.8 var(--ex-mono); letter-spacing: .12em; text-transform: uppercase;
+}
+.ex-cinema-title {
+  flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; font: 650 clamp(1rem, 1.2vw, 1.5rem)/1.35 var(--ex-sans);
+  color: var(--ex-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ex-cinema-count {
+  flex: none; font: .8rem/1.4 var(--ex-mono); color: var(--ex-muted); font-variant-numeric: tabular-nums;
+}
+.ex-cinema-exit {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; width: 2rem; height: 2rem; border-radius: 50%;
+  text-align: center; font: 400 1.25rem/2rem var(--ex-sans); color: var(--ex-muted);
+}
+.ex-cinema-exit:hover { background: var(--ex-surface); color: var(--ex-fg); }
+.ex-cinema-exit:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+
+.ex-cinema-main { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.ex-cinema-stage {
+  width: 100%; max-width: min(96vw, 2400px); max-height: 100%; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; cursor: pointer;
+}
+.ex-cinema-stage > figure, .ex-cinema-stage > ex-scene {
+  width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important;
+  border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important;
+}
+.ex-cinema-stage .stage, .ex-cinema-stage .ex-scene-stage {
+  width: 100% !important; margin: 0 !important; padding: 0 !important; border: 0 !important;
+  border-radius: 0 !important; background: transparent !important; overflow: visible !important;
+}
+.ex-cinema-stage svg { display: block; width: 100% !important; height: auto !important; max-height: 68vh; }
+.ex-cinema-stage .bar, .ex-cinema-stage .caps,
+.ex-cinema-stage .ex-scene-bar, .ex-cinema-stage .ex-scene-cap,
+.ex-cinema-stage .ex-badge { display: none !important; }
+.ex-cinema-stage .fr { animation: ex-cinema-in .28s ease-out both; }
+@keyframes ex-cinema-in { from { opacity: .35; } to { opacity: 1; } }
+
+.ex-cinema-caption {
+  flex: none; width: min(94vw, 1200px); margin: 0 auto; min-height: 4.8rem; max-height: 22vh; overflow: auto;
+  padding: .7rem 1rem .75rem; border-radius: .65rem; background: var(--ex-surface); border: 1px solid var(--ex-line);
+  box-sizing: border-box;
+}
+.ex-cinema-caption b {
+  display: block; margin-bottom: .3rem; font: 650 clamp(1.05rem, 1.2vw, 1.45rem)/1.35 var(--ex-sans); color: var(--ex-fg);
+}
+.ex-cinema-caption span { display: block; font: 400 clamp(.95rem, 1.05vw, 1.2rem)/1.65 var(--ex-sans); color: var(--ex-muted); }
+
+.ex-cinema-bar { flex: none; display: flex; align-items: center; gap: .6rem; width: min(94vw, 1200px); margin: 0 auto; padding-top: .15rem; }
+.ex-cinema-prev, .ex-cinema-next, .ex-cinema-toggle {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; text-align: center;
+  padding: .35rem .8rem; border: 1px solid var(--ex-line); border-radius: 999px; background: var(--ex-bg);
+  font: 600 .84rem/1.5 var(--ex-sans); color: var(--ex-fg);
+}
+.ex-cinema-toggle { min-width: 7.2rem; border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-voice {
+  flex: none; max-width: 11rem; height: 2rem; padding: 0 .4rem; border: 1px solid var(--ex-line); border-radius: 6px;
+  background: var(--ex-bg); color: var(--ex-fg); font: .8rem var(--ex-sans); cursor: pointer;
+}
+.ex-cinema-voice:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+.ex-cinema-prev:hover:not(:disabled), .ex-cinema-next:hover:not(:disabled) { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-prev:disabled, .ex-cinema-next:disabled { opacity: .35; cursor: default; }
+.ex-cinema-prev:focus-visible, .ex-cinema-next:focus-visible, .ex-cinema-toggle:focus-visible {
+  outline: 2px solid var(--ex-accent); outline-offset: 2px;
+}
+.ex-cinema-track { flex: 1 1 auto; height: .3rem; border-radius: 999px; background: var(--ex-line); overflow: hidden; }
+.ex-cinema-track i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ex-accent); transition: width .25s ease; }
+.ex-cinema-status { flex: none; min-width: 7rem; max-width: 14rem; text-align: right; font: .74rem/1.4 var(--ex-mono); color: var(--ex-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-cinema-retry {
+  all: unset; box-sizing: border-box; cursor: pointer; flex: none; padding: .2rem .55rem;
+  border: 1px solid var(--ex-warn); border-radius: 999px; background: var(--ex-warn-bg);
+  color: var(--ex-warn); font: 600 .74rem/1.5 var(--ex-sans);
+}
+.ex-cinema-retry:hover { border-color: var(--ex-accent); color: var(--ex-accent); }
+.ex-cinema-retry:focus-visible { outline: 2px solid var(--ex-accent); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .ex-cinema-title { font-size: .9rem; }
+  .ex-cinema-status { display: none; }
+  .ex-cinema-caption { min-height: 5.6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-cinema-stage .fr { animation: none; }
+  .ex-cinema-track i { transition: none; }
+}

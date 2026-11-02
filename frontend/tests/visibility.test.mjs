@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { focusedRegionEdges, refAtLevel, regionAtPoint, relationTouchesRegion, visibleFiles } from "../src/visibility.ts";
+import { focusedRegionEdges, refAtLevel, regionAtPoint, relationTouchesNode, visibleFiles } from "../src/visibility.ts";
 
 const graph = {
   regions: [{ parent: null, box: [0, 0, 1000, 1000] }, { parent: 0, box: [0, 0, 300, 300] }],
@@ -54,11 +54,21 @@ test("L0 focus includes incoming and outgoing edges, even to small/offscreen nei
   assert.deepEqual(focusedRegionEdges(graph, new Set([1, 2, 3]), 0), []);
 });
 
-test("L0 semantic focus filters both directions and excludes unrelated relations", () => {
-  assert(relationTouchesRegion({ t: "region", i: 1 }, { t: "region", i: 2 }, 1));
-  assert(relationTouchesRegion({ t: "region", i: 3 }, { t: "region", i: 1 }, 1));
-  assert(!relationTouchesRegion({ t: "region", i: 2 }, { t: "region", i: 3 }, 1));
-  assert(relationTouchesRegion({ t: "region", i: 2 }, { t: "region", i: 3 }, null));
+test("semantic focus keeps only relations touching the active node", () => {
+  const rel = (src, dst) => ({ src, dst });
+  const r1 = { t: "region", i: 1 }, f1 = { t: "file", i: 1 }, f2 = { t: "file", i: 2 };
+  const sym = { t: "symbol", id: "a#F.m", file: 1 };
+  assert(relationTouchesNode(rel({ t: "region", i: 1 }, { t: "region", i: 2 }), { type: "region", index: 1 }));
+  assert(relationTouchesNode(rel({ t: "region", i: 3 }, { t: "region", i: 1 }), { type: "region", index: 1 }));
+  assert(!relationTouchesNode(rel({ t: "region", i: 2 }, { t: "region", i: 3 }), { type: "region", index: 1 }));
+  assert(relationTouchesNode(rel(f1, f2), { type: "file", index: 1 }));
+  assert(relationTouchesNode(rel(f2, f1), { type: "file", index: 1 }));
+  assert(!relationTouchesNode(rel(f2, { t: "file", i: 3 }), { type: "file", index: 1 }));
+  assert(relationTouchesNode(rel(f2, sym), { type: "file", index: 1 }));
+  assert(relationTouchesNode(rel(sym, f2), { type: "symbol", id: "a#F.m", file: 1 }));
+  assert(relationTouchesNode(rel({ t: "symbol", id: "a#F.m.x", file: 1 }, f2), { type: "symbol", id: "a#F.m", file: 1 }));
+  assert(!relationTouchesNode(rel(f2, { t: "file", i: 3 }), { type: "symbol", id: "a#F.m", file: 1 }));
+  assert(relationTouchesNode(rel(r1, f2), null));
 });
 
 test("L0 center clicks resolve the innermost region even when an edge overlays it", () => {

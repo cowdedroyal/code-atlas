@@ -31,17 +31,18 @@ export function TourMenu({ graph, start }: { graph: Graph; start: (i: number) =>
   );
 }
 
-export function TourBar({ tour, step, go, exit }: { tour: Tour; step: number; go: (s: number) => void; exit: () => void }) {
+export function TourBar({ tour, step, go, exit, openCard, paused }: { tour: Tour; step: number; go: (s: number) => void;
+                                                          exit: () => void; openCard: (id: string) => void; paused: boolean }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (paused || (e.target as HTMLElement)?.tagName === "INPUT") return;
       if (e.key === "ArrowRight" && step < tour.steps.length - 1) go(step + 1);
       else if (e.key === "ArrowLeft" && step > 0) go(step - 1);
       else if (e.key === "Escape") exit();
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [tour, step]);
+  }, [tour, step, paused]);
   const s = tour.steps[step];
   const where = s.at.includes("#") ? s.at.split("#")[1] : s.at.split("/").pop();
   return (
@@ -53,6 +54,7 @@ export function TourBar({ tour, step, go, exit }: { tour: Tour; step: number; go
       </div>
       <div className="tour-where mono">{where}{s.state && <span className="badge warn">{t(STATE_KEY[s.state] ?? "stale")}</span>}</div>
       {s.text && <div className="tour-text"><Markdown text={s.text} /></div>}
+      {s.card && <div className="tour-card"><button className="fit" onClick={() => openCard(s.card!)}>▶ {t("explainStep")}</button></div>}
       <div className="tour-nav">
         <button className="fit" disabled={step === 0} onClick={() => go(step - 1)}>← {t("prev")}</button>
         <div className="tour-dots">

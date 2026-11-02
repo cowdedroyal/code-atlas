@@ -1,6 +1,6 @@
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Chunk, DeclarationFold, Graph, NodeRef, Relation, Selection, SymbolNode } from "./types";
+import type { Chunk, DeclarationFold, Explainer, Graph, NodeRef, Relation, Selection, SymbolNode } from "./types";
 import { loadChunk, loadCode, loadSyntax } from "./data";
 import { EDGE_COLOR, ROLE_COLOR } from "./palette";
 import { t, type Key } from "./i18n";
@@ -9,6 +9,8 @@ import Markdown from "./Markdown";
 import { isMarkdown } from "./markdownClient";
 import { symbolName } from "./symbolName";
 import { foldedCodeRows } from "./codeFolds";
+import { ExplainerList } from "./Explainers";
+import { explainersFor } from "./explainerLinks";
 
 interface Props {
   graph: Graph;
@@ -18,6 +20,7 @@ interface Props {
   close: () => void;
   width: number;
   setWidth: (width: number) => void;
+  openCard: (card: Explainer) => void;
 }
 
 const fileOf = (id: string) => id.split("#")[0];
@@ -180,7 +183,7 @@ function EdgeList({ title, items, navigate, nameOf }: { title: string; items: { 
   );
 }
 
-export default function Panel({ graph, chunks, selection, navigate, close, width, setWidth }: Props) {
+export default function Panel({ graph, chunks, selection, navigate, close, width, setWidth, openCard }: Props) {
   const panelRef = useRef<HTMLElement>(null);
   const drag = useRef<{ x: number; width: number } | null>(null);
   const [textZoom, setTextZoom] = useState(1);
@@ -224,6 +227,9 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
     navigate(id.includes("#") ? { type: "symbol", id, file: fi } : { type: "file", index: fi });
   };
 
+  const cards = useMemo(() => explainersFor(graph, selection), [graph, selection]);
+  const explainers = <ExplainerList cards={cards} open={openCard} />;
+
   let body: React.ReactElement;
   if (selection.type === "region") {
     const r = graph.regions[selection.index];
@@ -237,6 +243,7 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
         {r.responsibility && <div className="resp"><Markdown text={r.responsibility} openFile={openFile} /></div>}
         <Note text={r.note} stale={r.stale} openFile={openFile} />
         <div className="mono muted">{r.path || "/"}</div>
+        {explainers}
         <Relations graph={graph} me={{ t: "region", i: selection.index }} navigate={navigate} openFile={openFile} />
         {kids.length > 0 && (
           <section>
@@ -290,6 +297,7 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
             <span key={ri} className="link" onClick={() => navigate({ type: "region", index: ri })}>{graph.regions[ri].name} </span>
           ))}</div>
         )}
+        {explainers}
         <Relations graph={graph} me={{ t: "file", i: fileIdx! }} navigate={navigate} path={file.id} openFile={openFile} />
         {syms.length > 0 && (
           <section>
@@ -332,6 +340,7 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
         {s.sig && <div className="sig mono">{s.sig}</div>}
         {s.doc && <div className="doc"><Markdown text={s.doc} path={file.id} openFile={openFile} /></div>}
         <Note text={s.note} stale={s.stale} path={file.id} openFile={openFile} />
+        {explainers}
         <Relations graph={graph} me={{ t: "symbol", id: s.id, file: fileIdx! }} navigate={navigate} path={file.id} openFile={openFile} />
         <div className="meta mono">{file.id}:{s.start}–{s.end}</div>
         {kids.length > 0 && (

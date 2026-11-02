@@ -24,10 +24,10 @@ _SKIP = {"string", "template_string", "comment", "regex", "number"}
 _SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.S | re.I)
 
 
-def extract_ecmascript(text: str, lang: str) -> dict:
+def extract_ecmascript(text: str, lang: str, quals: set[str] | None = None) -> dict:
     src = text.encode("utf-8", "surrogatepass")
     tree = parser_for(lang).parse(src)
-    w = _Walker(src)
+    w = _Walker(src, quals)
     w.module(tree.root_node)
     w.facts["doc"] = _header_comment(text)
     if text.startswith("#!"):
@@ -38,11 +38,15 @@ def extract_ecmascript(text: str, lang: str) -> dict:
 def extract_sfc(text: str) -> dict:
     """Vue/Svelte: parse every <script> block with the JS/TS walker and shift line numbers."""
     facts = empty_facts()
+    comments = [(c.start(), c.end()) for c in re.finditer(r"<!--.*?-->", text, re.S)]
+    quals: set[str] = set()  # shared across blocks so a name declared twice gets the usual ~n suffix
     for m in _SCRIPT.finditer(text):
+        if any(a <= m.start() < b for a, b in comments):
+            continue  # a commented-out <script> block is not code
         attrs, body = m.group(1), m.group(2)
         lang = "typescript" if re.search(r'lang\s*=\s*["\']ts', attrs) else "javascript"
         offset = text.count("\n", 0, m.start(2))
-        part = extract_ecmascript(body, lang)
+        part = extract_ecmascript(body, lang, quals)
         for s in part["symbols"]:
             s["s"] += offset
             s["e"] += offset
@@ -55,10 +59,10 @@ def extract_sfc(text: str) -> dict:
 
 
 class _Walker:
-    def __init__(self, src: bytes):
+    def __init__(self, src: bytes, quals: set[str] | None = None):
         self.src = src
         self.facts = empty_facts()
-        self.quals: set[str] = set()
+        self.quals: set[str] = quals if quals is not None else set()
         self.exported_names: set[str] = set()
 
     def t(self, node) -> str:

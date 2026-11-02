@@ -104,20 +104,26 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
             todo.append((e.path, e.lang, e.tier, text))
 
     if todo:
-        prefetch(g for p, *_ in todo for g in _grammar(by_path[p]))
+        missing = prefetch(g for p, *_ in todo for g in _grammar(by_path[p]))
         if len(todo) >= PARALLEL_THRESHOLD and (workers or os.cpu_count() or 1) > 1:
             with ProcessPoolExecutor(max_workers=workers) as pool:
                 results = list(pool.map(_parse_one, todo, chunksize=16))
         else:
             results = [_parse_one(t) for t in todo]
+        failed: set[str] = set()
         for path, fx, err in results:
             facts[path] = fx
             if err:
+                failed.add(path)  # never cached: an empty entry would hide the failure from later scans
                 rep.failed.append(f"{path}: {err}")
         rep.parsed = len(todo)
+    else:
+        failed, missing = set(), []
 
     res = Resolver(repo, by_path, facts).run()
     rep.stats = dict(res.stats)
+    if missing:
+        rep.stats["grammars_unavailable"] = missing
     scip_paths = [str(Path(p).resolve()) for p in scip] if scip else json.loads(meta_get(db, "scip", "[]") or "[]")
     if scip_paths:
         res.edges, rep.stats["scip"] = _apply_scip(res.edges, scip_paths, facts)
@@ -133,7 +139,7 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
             db.executemany("insert into touched values (?)", [(p,) for p in stale_files])
             old_rows = db.execute("select id, hash, kind, name from symbols where path in (select path from touched)")
         old = {r["id"]: (r["hash"], r["kind"], r["name"]) for r in old_rows}
-        new_syms = [_symbol_row(path, s) for path in (facts if stale_files is None else parsed) for s in facts[path]["symbols"]]
+        new_syms = _symbol_rows(sorted(facts if stale_files is None else parsed), facts)
         rep.renamed = _track_renames(db, old, new_syms, _git_renames(repo, meta_get(db, "commit")))
         if stale_files is None:
             db.execute("delete from symbols")
@@ -151,13 +157,13 @@ def scan(repo: Path, full: bool = False, workers: int | None = None, scip: list 
         db.executemany("insert into externals values (?,?)",
                        [(p, pkg) for p, pkgs in res.externals.items() for pkg in sorted(pkgs)])
         db.execute("create temp table keep (path text primary key)")
-        db.executemany("insert into keep values (?)", [(p,) for p in facts])
+        db.executemany("insert into keep values (?)", [(p,) for p in facts if p not in failed])
         db.execute("delete from facts_cache where path not in (select path from keep)")
         db.execute("drop table keep")
         db.executemany("insert into facts_cache values (?,?,?,?) on conflict(path) do update set "
                        "hash = excluded.hash, version = excluded.version, json = excluded.json",
                        [(p, hashes.get(p), EXTRACTOR_VERSION, json.dumps(fx, ensure_ascii=False))
-                        for p, fx in facts.items() if p in parsed])
+                        for p, fx in facts.items() if p in parsed and p not in failed])
         meta_set(db, "scanned_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
         meta_set(db, "commit", _git_head(repo) or "")
         meta_set(db, "stats", json.dumps(rep.stats))
@@ -174,16 +180,28 @@ def _symbol_row(path: str, s: dict) -> tuple:
             f"{path}#{s['p']}" if s["p"] else path, s["h"], s["doc"], int(bool(s["x"])))
 
 
+def _symbol_rows(paths, facts: dict[str, dict]) -> list[tuple]:
+    """One row per symbol id, first definition wins: a duplicate id must never abort the whole scan."""
+    rows, seen = [], set()
+    for path in paths:
+        for s in facts[path]["symbols"]:
+            row = _symbol_row(path, s)
+            if row[0] not in seen:
+                seen.add(row[0])
+                rows.append(row)
+    return rows
+
+
 def _write_edges(db, rows: list[tuple]) -> None:
     """Edges are re-resolved globally each scan, but between two scans few of them change: write the diff."""
-    old = set(db.execute("select src, dst, type, conf, via, count from edges").fetchall())
+    old = set(map(tuple, db.execute("select src, dst, type, conf, via, count from edges").fetchall()))
     new = set(rows)
     gone, added = old - new, new - old
     if len(gone) + len(added) > len(new) // 2:  # big change: a rewrite is cheaper than a diff
         db.execute("delete from edges")
         db.executemany("insert into edges values (?,?,?,?,?,?)", rows)
         return
-    db.executemany("delete from edges where src = ? and dst = ? and type = ? and conf = ? and via = ? and count = ?", gone)
+    db.executemany("delete from edges where src = ? and dst = ? and type = ? and conf = ? and via is ? and count = ?", gone)
     db.executemany("insert into edges values (?,?,?,?,?,?)", added)
 
 
