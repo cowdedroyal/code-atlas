@@ -5,7 +5,7 @@
     site/data/search.json                 every symbol's name, kind and box — fetched on first search
     site/data/chunks/<n>.json             symbols + symbol edges of a group of files, ≤ CHUNK_SYMBOLS symbols (L2/L3)
     site/data/code/<n>.json               source text of that chunk's files (omitted with --no-source)
-    site/data/explainers/<id>.html        explainer cards, packed (kit and CSP inlined); listed in graph.json
+    site/data/explainers/<id>.json        packed explainer card HTML (a JSON string, so opening it does not run a page)
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from . import __version__
 from .cluster import MAPPED_KINDS
 from .graphdata import file_of, load_index
 from .layout import align_translation, layout
-from .index import cache_dir
+from .index import cache_dir, check_unlinked
 from .semantic import store
 from .explainer_kit.pack import inline_media, lint_card, load_media, media_refs, pack_html
 from .semantic.agenda import staleness
@@ -33,6 +33,17 @@ from .module_scope import declaration_folds, execution_symbols
 
 WEB_DIR = Path(__file__).parent / "web"
 SITE_MANIFEST = ".codeatlas-site.json"
+_BAD_NAME = set('\\/:*?"<>|')
+
+
+def _safe_entry(e: object) -> bool:
+    """A single path component with no separators or control bytes: the manifest is repository data, not a path."""
+    return (isinstance(e, str) and e not in ("", ".", "..") and Path(e).name == e
+            and not any(c in _BAD_NAME or ord(c) < 32 for c in e))
+
+
+def _is_link(p: Path) -> bool:
+    return p.is_symlink() or getattr(p, "is_junction", lambda: False)()
 
 
 def _written_entries() -> list[str]:
@@ -46,7 +57,7 @@ def _owned_entries(out: Path) -> list[str]:
         m = json.loads((out / SITE_MANIFEST).read_text("utf-8"))
         entries = m.get("entries") if isinstance(m, dict) else None
         if isinstance(entries, list):  # a repository can ship this file: accept single path components only
-            return [e for e in entries if isinstance(e, str) and e not in ("", ".", "..") and Path(e).name == e]
+            return [e for e in entries if _safe_entry(e)]
     except (OSError, ValueError):
         pass
     return _written_entries()
@@ -324,10 +335,12 @@ def _explainers(idx, repo: Path, cards: dict[str, dict], state: dict[str, dict])
             skipped[cid] = [str(e)]
             continue
         # canonical ids, so a card still lands on a symbol that moved (the viewer matches anchors literally)
-        anchors = [a if a.startswith(REGION_PREFIX) else idx.canonical(a) for a in c["anchors"]]
+        canon = lambda a: a if a.startswith(REGION_PREFIX) else idx.canonical(a)
+        anchors = [canon(a) for a in c["anchors"]]
         listed.append({"id": cid, "title": c["title"], "summary": c["summary"], "questions": c["questions"],
                        "anchors": anchors, "tags": c.get("tags", []), "language": c.get("language"),
-                       "at": c.get("at"), **({"state": state[cid]["state"], "stale_nodes": state[cid]["nodes"]}
+                       "at": c.get("at"), **({"state": state[cid]["state"],
+                                              "stale_nodes": [canon(n) for n in state[cid]["nodes"]]}
                                              if cid in state else {})})
     return listed, pages, skipped
 
@@ -346,23 +359,39 @@ def _round(b):
 
 def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index: bool = True,
                repack: bool = False, force: bool = False) -> dict:
+    try:
+        check_unlinked(repo, out)  # --force never covers this: the link may point at anything on the machine
+    except ValueError as e:
+        return {"ok": False, "errors": [str(e)]}
     if out.exists() and not out.is_dir():
         return {"ok": False, "errors": [f"{out} is not a directory"]}
     if out.exists() and any(out.iterdir()) and not force and not _looks_like_site(out):
         return {"ok": False, "errors": [f"{out} is not empty and is not a Code Atlas site; pass --force to build over it"]}
+    if out.exists():
+        writes = ([p.name for p in WEB_DIR.iterdir()] if WEB_DIR.exists() else []) + ["data", SITE_MANIFEST]
+        for name in writes:
+            p = out / name
+            if _is_link(p):  # copy2/copytree and the manifest write would follow the link outside out
+                return {"ok": False, "errors": [f"{p} is a symlink or junction; refusing to write through it"]}
     if refresh_index:
         from .scan import scan
         scan(repo)
-    data = build_data(repo, include_source, stable_layout=True, repack=repack)
+    try:
+        data = build_data(repo, include_source, stable_layout=True, repack=repack)
+    except (ValueError, OSError) as e:  # a stale index or unreadable source: report it instead of a traceback
+        return {"ok": False, "errors": [str(e)]}
     out.mkdir(parents=True, exist_ok=True)
     for name in _owned_entries(out):  # delete only what a previous build wrote, so unrelated files survive
         p = out / name
-        if p.resolve().parent != out.resolve():  # links, junctions and device names never take the delete elsewhere
+        try:
+            if p.resolve().parent != out.resolve():  # links, junctions and device names never take the delete elsewhere
+                continue
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.exists():
+                p.unlink()
+        except (OSError, ValueError, UnicodeError):  # one unrepresentable manifest entry must not abort the build
             continue
-        if p.is_dir():
-            shutil.rmtree(p)
-        elif p.exists():
-            p.unlink()
     if WEB_DIR.exists():
         for item in WEB_DIR.iterdir():
             dst = out / item.name
@@ -386,8 +415,8 @@ def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index
                 dump(data["syntax"][i], ddir / "syntax" / f"{i}.json")
     if data["cards"]:
         (ddir / "explainers").mkdir()
-        for cid, page in data["cards"].items():
-            (ddir / "explainers" / f"{cid}.html").write_text(page, encoding="utf-8")
+        for cid, page in data["cards"].items():  # JSON string, not .html: a direct visit must not run the card page
+            dump(page, ddir / "explainers" / f"{cid}.json")
     (out / SITE_MANIFEST).write_text(json.dumps({"version": 1, "entries": _written_entries()}), encoding="utf-8")
     g = data["graph"]
     return {"ok": True, "out": str(out), "regions": len(g["regions"]), "files": len(g["files"]),

@@ -189,15 +189,26 @@ app.add_typer(card_app, name="card")
 @card_app.command("bake")
 def card_bake(path: Path = typer.Argument(..., help="Card directory (card.yaml + index.html + media/)."),
               only: list[str] = typer.Option(None, "--only", help="Bake just this asset (repeatable).")):
-    """Render the card's animation frames and Vega-Lite charts into media/ (needs `code-atlas[media]`)."""
+    """Render the card's animation frames and Vega-Lite charts into media/ (needs `repo-code-atlas\\[media]`)."""
     from .explainer_kit.media import BakeError, bake_card
+    path = path.resolve()
+    if not path.is_dir():  # bake_card would raise FileNotFoundError while making media/
+        emit({"ok": False, "errors": [f"{path}: no card directory"]})
+        raise typer.Exit(1)
     try:
-        report = bake_card(path.resolve(), only=set(only) if only else None)
+        report = bake_card(path, only=set(only) if only else None)
     except BakeError as e:
         emit({"ok": False, "errors": [str(e)]})
         raise typer.Exit(1)
-    if only and not report["media"]:
-        emit({"ok": False, "errors": [f"this card declares no media named {', '.join(sorted(only))}"]})
+    except ImportError as e:  # the frames path imports Pillow directly, outside its own BakeError handling
+        emit({"ok": False, "errors": [f"media baking needs the media extra: pip install 'repo-code-atlas[media]' ({e})"]})
+        raise typer.Exit(1)
+    except OSError as e:
+        emit({"ok": False, "errors": [f"{path}: {e}"]})
+        raise typer.Exit(1)
+    missing = sorted(set(only or ()) - set(report["media"]))
+    if missing:
+        emit({"ok": False, "errors": [f"this card declares no media named {', '.join(missing)}"]})
         raise typer.Exit(1)
     emit(report)
 
@@ -281,10 +292,12 @@ def build(repo: Path = RepoOpt,
           repack: bool = typer.Option(False, "--repack", help="Discard cached positions and compact the map."),
           force: bool = typer.Option(False, "--force", help="Write into a non-empty directory that is not a Code Atlas site.")):
     """Build the static map site (open index.html via any static file server)."""
+    import os
     from .index import cache_dir
     from .site import build_site
     repo = repo.resolve()
-    report = build_site(repo, (out or cache_dir(repo) / "site").resolve(), include_source=not no_source,
+    # absolute, not resolved: resolving would hide a link inside the repository from build_site's check
+    report = build_site(repo, Path(os.path.abspath(out or cache_dir(repo) / "site")), include_source=not no_source,
                         repack=repack, force=force)
     emit(report)
     raise typer.Exit(0 if report.get("ok") else 1)
@@ -332,6 +345,9 @@ def serve(repo: Path = RepoOpt,
     handler = functools.partial(Quiet, directory=str(out))
     try:
         httpd = Server(("127.0.0.1", port), handler)  # bind before the scan so a busy port fails fast
+    except OverflowError:  # socket.bind rejects a port outside 0-65535 with OverflowError, not OSError
+        emit({"ok": False, "errors": [f"cannot listen on 127.0.0.1:{port}: port must be between 0 and 65535"]})
+        raise typer.Exit(1)
     except OSError as e:
         emit({"ok": False, "errors": [f"cannot listen on 127.0.0.1:{port}: port in use ({e.strerror or e}); "
                                       f"pass --port 0 for a free port or --port N for another one"]})
@@ -340,7 +356,8 @@ def serve(repo: Path = RepoOpt,
     stopped = threading.Event()
 
     def rebuild() -> dict:
-        report = build_site(repo, out, include_source=not no_source)
+        # this cache directory is serve's own output, so a partial previous build must never block a rebuild
+        report = build_site(repo, out, include_source=not no_source, force=True)
         if report.get("skipped_cards"):
             print(f"skipped cards: {json.dumps(report['skipped_cards'], ensure_ascii=False)}", file=sys.stderr, flush=True)
         return report
@@ -348,7 +365,11 @@ def serve(repo: Path = RepoOpt,
     if scan_first:
         rep = run_scan(repo)
         print(f"scanned {rep.files} files ({rep.parsed} parsed, {rep.reused} cached) in {rep.seconds}s", file=sys.stderr)
-    report = build_site(repo, out, include_source=not no_source, refresh_index=False)
+    try:  # a rebuild over our own partial cache is always allowed, and the socket must not leak on an interrupt
+        report = build_site(repo, out, include_source=not no_source, refresh_index=False, force=True)
+    except BaseException:
+        httpd.server_close()
+        raise
     if not report.get("ok"):
         httpd.server_close()
         emit(report)
