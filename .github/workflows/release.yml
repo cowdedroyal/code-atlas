@@ -25,7 +25,7 @@ jobs:
           version=$(uv run --no-sync python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$version" = "$GITHUB_REF_NAME"
       - run: uv build
-      - name: The wheel must ship the viewer and the skill
+      - name: The wheel must ship the viewer, the skill and the explainer kit
         run: |
           python - <<'EOF'
           import glob, zipfile
@@ -34,9 +34,24 @@ jobs:
           from email.parser import Parser
           metadata = next(n for n in names if n.endswith("/METADATA"))
           assert Parser().parsestr(wheel.read(metadata).decode())["Name"] == "repo-code-atlas"
-          for need in ("code_atlas/web/index.html", "code_atlas/skill/SKILL.md"):
+          kit = "code_atlas/explainer_kit/"  # pack.py loads the schema on import and inlines the rest into every card
+          for need in ("code_atlas/web/index.html", "code_atlas/skill/SKILL.md", kit + "card.schema.json",
+                       kit + "kit/v1.css", kit + "kit/v1.js", kit + "media/vendor/vega.min.js",
+                       kit + "media/vendor/vega-interpreter.min.js", kit + "media/vendor/LICENSE-vega.txt",
+                       kit + "media/vendor/LICENSE-vega-interpreter.txt"):
               assert need in names, need
           EOF
+      - name: The installed wheel scans, builds a site and reports the tagged version
+        run: |
+          uv venv /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env dist/*.whl
+          mkdir -p /tmp/smoke/pkg && printf 'def f():
+    return 1
+' > /tmp/smoke/pkg/a.py
+          /tmp/wheel-env/bin/codeatlas scan -r /tmp/smoke
+          /tmp/wheel-env/bin/codeatlas build -r /tmp/smoke -o /tmp/smoke-site
+          test -f /tmp/smoke-site/index.html && test -f /tmp/smoke-site/data/graph.json
+          /tmp/wheel-env/bin/python -c "import sys, code_atlas; from code_atlas.explainer_kit import pack; assert pack.kit_bytes() > 0; assert 'v' + code_atlas.__version__ == sys.argv[1], code_atlas.__version__" "$GITHUB_REF_NAME"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
