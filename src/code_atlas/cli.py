@@ -19,6 +19,15 @@ def emit(obj) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
 
 
+def _check_run(run: str | None) -> None:
+    """Refuse a run id that cannot be a snapshot file name before any command writes one."""
+    if run is not None:
+        from .semantic.changeset import run_id_error
+        if err := run_id_error(run):
+            emit({"ok": False, "errors": [err]})
+            raise typer.Exit(1)
+
+
 @app.command()
 def scan(repo: Path = RepoOpt,
          full: bool = typer.Option(False, help="Ignore the parse cache and re-parse every file."),
@@ -75,9 +84,11 @@ def tours(repo: Path = RepoOpt):
     from .semantic import store
     from .semantic.explainers import load_cards
     from .semantic.tours import tour_status
+    from .site import linted_cards
     idx = load_index(repo.resolve())
     sem = store.load(repo.resolve())
-    cards = load_cards(repo.resolve())
+    all_cards = load_cards(repo.resolve())
+    cards = linted_cards(repo.resolve(), all_cards)
     status = tour_status(idx, sem, cards)
     per_file: dict[str, int] = {}
     for s in idx.symbols.values():
@@ -95,7 +106,7 @@ def tours(repo: Path = RepoOpt):
                                **({"card": s["card"], "card_ok": s["card"] in cards} if s.get("card") else {}),
                                **({"state": states[i]} if i < len(states) and states[i] else {})}
                               for i, s in enumerate(t.get("steps") or [])]})
-    emit({"ok": True, "tours": out, "cards": sorted(cards)})
+    emit({"ok": True, "tours": out, "cards": sorted(all_cards)})
 
 
 def _read_changeset(file: Path | None) -> dict:
@@ -134,7 +145,11 @@ def agenda(repo: Path = RepoOpt, limit: int = typer.Option(20), type: list[str] 
 def validate(file: Path = typer.Option(None, "--file", "-f", help="Changeset JSON (default: stdin)."), repo: Path = RepoOpt):
     """Dry-run a changeset: report every error and warning, change nothing."""
     from .semantic.changeset import validate as v
-    report, _, _ = v(repo.resolve(), _read_changeset(file))
+    try:
+        report, _, _ = v(repo.resolve(), _read_changeset(file))
+    except Exception as e:  # the command promises JSON, never a traceback
+        emit({"ok": False, "errors": [f"internal error: {type(e).__name__}: {e}"]})
+        raise typer.Exit(1)
     emit(report)
     raise typer.Exit(0 if report["ok"] else 1)
 
@@ -144,7 +159,11 @@ def apply(file: Path = typer.Option(None, "--file", "-f", help="Changeset JSON (
           run: str = typer.Option(None, help="Run id (default: timestamp).")):
     """Validate and write a changeset into .codemap/."""
     from .semantic.changeset import apply as a
-    report = a(repo.resolve(), _read_changeset(file), run)
+    try:
+        report = a(repo.resolve(), _read_changeset(file), run)
+    except Exception as e:  # the command promises JSON, never a traceback
+        emit({"ok": False, "errors": [f"internal error: {type(e).__name__}: {e}"]})
+        raise typer.Exit(1)
     emit(report)
     raise typer.Exit(0 if report["ok"] else 1)
 
@@ -197,6 +216,7 @@ def card_apply(path: Path = typer.Argument(..., help="Card directory (card.yaml 
                run: str = typer.Option(None, help="Run id (default: timestamp).")):
     """Validate a card and write it into .codemap/explainers/ (same id replaces; identical content changes nothing)."""
     from .semantic.explainers import apply_card
+    _check_run(run)
     report = apply_card(repo.resolve(), path.resolve(), run)
     emit(report)
     raise typer.Exit(0 if report["ok"] else 1)
@@ -215,6 +235,7 @@ def card_search(query: str = typer.Argument("", help="Words from the title, ques
 def card_confirm(card_id: str, repo: Path = RepoOpt, run: str = typer.Option(None)):
     """After reviewing a stale card against the current code, refresh its anchors without changing its text."""
     from .semantic.explainers import confirm_card
+    _check_run(run)
     report = confirm_card(repo.resolve(), card_id, run)
     emit(report)
     raise typer.Exit(0 if report["ok"] else 1)
@@ -224,6 +245,7 @@ def card_confirm(card_id: str, repo: Path = RepoOpt, run: str = typer.Option(Non
 def card_delete(card_id: str, repo: Path = RepoOpt, run: str = typer.Option(None)):
     """Remove a card (revertible with `codeatlas revert <run>`)."""
     from .semantic.explainers import delete_card
+    _check_run(run)
     report = delete_card(repo.resolve(), card_id, run)
     emit(report)
     raise typer.Exit(0 if report["ok"] else 1)
@@ -256,12 +278,16 @@ def skill_install(target: str = typer.Option("claude", help="claude → ~/.claud
 def build(repo: Path = RepoOpt,
           out: Path = typer.Option(None, "--out", "-o", help="Output directory (default: .codemap/cache/site)."),
           no_source: bool = typer.Option(False, "--no-source", help="Do not embed source code in the site."),
-          repack: bool = typer.Option(False, "--repack", help="Discard cached positions and compact the map.")):
+          repack: bool = typer.Option(False, "--repack", help="Discard cached positions and compact the map."),
+          force: bool = typer.Option(False, "--force", help="Write into a non-empty directory that is not a Code Atlas site.")):
     """Build the static map site (open index.html via any static file server)."""
     from .index import cache_dir
     from .site import build_site
     repo = repo.resolve()
-    emit(build_site(repo, (out or cache_dir(repo) / "site").resolve(), include_source=not no_source, repack=repack))
+    report = build_site(repo, (out or cache_dir(repo) / "site").resolve(), include_source=not no_source,
+                        repack=repack, force=force)
+    emit(report)
+    raise typer.Exit(0 if report.get("ok") else 1)
 
 
 @app.command()
@@ -272,17 +298,15 @@ def serve(repo: Path = RepoOpt,
           watch: bool = typer.Option(True, "--watch/--no-watch", help="Rebuild when semantic files change.")):
     """Scan, build and serve the map at http://127.0.0.1:PORT."""
     import functools
+    import os
+    import socket
     import threading
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
     from .index import cache_dir
     from .scan import scan as run_scan
     from .site import build_site
     repo = repo.resolve()
-    if scan_first:
-        rep = run_scan(repo)
-        print(f"scanned {rep.files} files ({rep.parsed} parsed, {rep.reused} cached) in {rep.seconds}s", file=sys.stderr)
     out = cache_dir(repo) / "site"
-    build_site(repo, out, include_source=not no_source, refresh_index=False)
 
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -296,13 +320,45 @@ def serve(repo: Path = RepoOpt,
                 self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
+    class Server(ThreadingHTTPServer):
+        # http.server sets SO_REUSEADDR; on Windows that lets a second process co-bind a live port silently.
+        allow_reuse_address = os.name != "nt"
+
+        def server_bind(self):
+            if os.name == "nt":
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
     handler = functools.partial(Quiet, directory=str(out))
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    try:
+        httpd = Server(("127.0.0.1", port), handler)  # bind before the scan so a busy port fails fast
+    except OSError as e:
+        emit({"ok": False, "errors": [f"cannot listen on 127.0.0.1:{port}: port in use ({e.strerror or e}); "
+                                      f"pass --port 0 for a free port or --port N for another one"]})
+        raise typer.Exit(1)
+    port = httpd.server_address[1]
     stopped = threading.Event()
+
+    def rebuild() -> dict:
+        report = build_site(repo, out, include_source=not no_source)
+        if report.get("skipped_cards"):
+            print(f"skipped cards: {json.dumps(report['skipped_cards'], ensure_ascii=False)}", file=sys.stderr, flush=True)
+        return report
+
+    if scan_first:
+        rep = run_scan(repo)
+        print(f"scanned {rep.files} files ({rep.parsed} parsed, {rep.reused} cached) in {rep.seconds}s", file=sys.stderr)
+    report = build_site(repo, out, include_source=not no_source, refresh_index=False)
+    if not report.get("ok"):
+        httpd.server_close()
+        emit(report)
+        raise typer.Exit(1)
+    if report.get("skipped_cards"):
+        print(f"skipped cards: {json.dumps(report['skipped_cards'], ensure_ascii=False)}", file=sys.stderr, flush=True)
     if watch:
         from .watch import watch_semantics
         threading.Thread(target=watch_semantics, daemon=True,
-                         args=(repo, lambda: build_site(repo, out, include_source=not no_source), stopped,
+                         args=(repo, rebuild, stopped,
                                lambda msg: print(msg, file=sys.stderr, flush=True))).start()
     print(f"Code Atlas: http://127.0.0.1:{port}/", file=sys.stderr, flush=True)
     try:

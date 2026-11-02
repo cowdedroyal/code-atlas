@@ -1,3 +1,5 @@
+import json
+
 from code_atlas.scan import scan
 from code_atlas.site import build_data
 from code_atlas.site import build_site
@@ -71,3 +73,37 @@ def test_build_refreshes_symbol_spans_with_source(tmp_path):
     assert (symbols["render"]["start"], symbols["render"]["end"]) == (7, 7)
     lines = code.splitlines()
     assert "\n".join(lines[2:5]) == "interface Props {\n  title: string\n}"
+
+
+def test_build_refuses_to_clobber_a_foreign_directory(tmp_path):
+    write(tmp_path, REPO)
+    scan(tmp_path)
+    out = tmp_path / "userdocs"
+    (out / "assets").mkdir(parents=True)
+    (out / "data" / "raw").mkdir(parents=True)
+    (out / "assets" / "logo.png").write_text("logo", encoding="utf-8")
+    (out / "data" / "raw" / "survey.csv").write_text("data", encoding="utf-8")
+    (out / "index.html").write_text("<h1>mine</h1>", encoding="utf-8")
+    report = build_site(tmp_path, out)
+    assert not report["ok"] and "--force" in report["errors"][0]
+    assert (out / "assets" / "logo.png").exists() and (out / "data" / "raw" / "survey.csv").exists()
+    assert (out / "index.html").read_text(encoding="utf-8") == "<h1>mine</h1>"
+    assert build_site(tmp_path, out, force=True)["ok"]
+    assert (out / "data" / "graph.json").exists()
+    (out / "notes.txt").write_text("keep", encoding="utf-8")
+    assert build_site(tmp_path, out)["ok"]  # a marked site can be rebuilt in place
+    assert (out / "notes.txt").exists()  # ... without deleting files it does not own
+
+
+def test_site_manifest_never_deletes_outside_the_output(tmp_path):
+    write(tmp_path, REPO)
+    scan(tmp_path)
+    out = tmp_path / "site"
+    assert build_site(tmp_path, out)["ok"]
+    victim = tmp_path / "victim"
+    (victim / "deep").mkdir(parents=True)
+    (victim / "deep" / "keep.txt").write_text("keep", encoding="utf-8")
+    hostile = ["..", "../victim", "..\\victim", str(victim), str(victim / "deep"), "C:victim", "data"]
+    (out / ".codeatlas-site.json").write_text(json.dumps({"version": 1, "entries": hostile}), encoding="utf-8")
+    assert build_site(tmp_path, out)["ok"]
+    assert (victim / "deep" / "keep.txt").exists() and (out / "data" / "graph.json").exists()

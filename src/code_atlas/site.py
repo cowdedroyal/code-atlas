@@ -32,6 +32,41 @@ from .highlight import has_browser_grammar, source_tokens
 from .module_scope import declaration_folds, execution_symbols
 
 WEB_DIR = Path(__file__).parent / "web"
+SITE_MANIFEST = ".codeatlas-site.json"
+
+
+def _written_entries() -> list[str]:
+    names = [p.name for p in WEB_DIR.iterdir()] if WEB_DIR.exists() else []
+    return names + ["data", SITE_MANIFEST]
+
+
+def _owned_entries(out: Path) -> list[str]:
+    """Top-level paths this build owns: from the manifest, or the legacy site layout for a pre-manifest build."""
+    try:
+        m = json.loads((out / SITE_MANIFEST).read_text("utf-8"))
+        entries = m.get("entries") if isinstance(m, dict) else None
+        if isinstance(entries, list):  # a repository can ship this file: accept single path components only
+            return [e for e in entries if isinstance(e, str) and e not in ("", ".", "..") and Path(e).name == e]
+    except (OSError, ValueError):
+        pass
+    return _written_entries()
+
+
+def _looks_like_site(out: Path) -> bool:
+    return (out / SITE_MANIFEST).exists() or ((out / "index.html").exists() and (out / "data" / "graph.json").exists())
+
+
+def linted_cards(repo: Path, cards: dict[str, dict]) -> dict[str, dict]:
+    """The cards the site can actually show: lint-clean and with loadable media."""
+    ok = {}
+    for cid in sorted(cards):
+        d = cards_dir(repo) / cid
+        try:
+            if not lint_card(d) and not load_media(d)[1]:
+                ok[cid] = cards[cid]
+        except (ValueError, OSError):
+            pass
+    return ok
 
 
 def _node_ref(node: str, r_index: dict, f_index: dict) -> dict | None:
@@ -103,6 +138,8 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
 
     in_deg = idx.in_deg
     cards = load_cards(repo)
+    listed, card_pages, skipped_cards = _explainers(idx, repo, cards, card_status(idx, sem, cards))
+    shown = {cid: cards[cid] for cid in card_pages}  # a tour must not offer a button for a card the site dropped
 
     graph = {
         "version": __version__,
@@ -130,9 +167,9 @@ def build_data(repo: Path, include_source: bool = True, stable_layout: bool = Fa
              "family": r["family"], "label": r["label"], "rationale": r["rationale"], "evidence": r["evidence"],
              **({"stale": stale[r["id"]]} if r["id"] in stale else {})}
             for r in sem.relations.values()) if rel["src"] and rel["dst"]],
-        "tours": _tours(sem, tour_status(idx, sem, cards), boxes, r_index, f_index, cards),
+        "tours": _tours(sem, tour_status(idx, sem, shown), boxes, r_index, f_index, shown),
     }
-    graph["explainers"], card_pages, skipped_cards = _explainers(repo, cards, card_status(idx, sem, cards))
+    graph["explainers"] = listed
     # search index (name, kind, file index, id, box): its own file, fetched on first search
     search = [[s["name"], s["kind"], f_index[s["path"]], s["id"], *_round(boxes[s["id"]])] for s in syms]
     chunks = []
@@ -267,7 +304,7 @@ def _tours(sem, status: dict, boxes: dict, r_index: dict, f_index: dict, cards: 
     return out
 
 
-def _explainers(repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> tuple[list[dict], dict[str, str], dict]:
+def _explainers(idx, repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> tuple[list[dict], dict[str, str], dict]:
     """Card list for graph.json, the packed page of each, and the cards left out because they no longer lint."""
     listed, pages, skipped = [], {}, {}
     for cid in sorted(cards):
@@ -286,8 +323,10 @@ def _explainers(repo: Path, cards: dict[str, dict], state: dict[str, dict]) -> t
         except (ValueError, OSError) as e:
             skipped[cid] = [str(e)]
             continue
+        # canonical ids, so a card still lands on a symbol that moved (the viewer matches anchors literally)
+        anchors = [a if a.startswith(REGION_PREFIX) else idx.canonical(a) for a in c["anchors"]]
         listed.append({"id": cid, "title": c["title"], "summary": c["summary"], "questions": c["questions"],
-                       "anchors": c["anchors"], "tags": c.get("tags", []), "language": c.get("language"),
+                       "anchors": anchors, "tags": c.get("tags", []), "language": c.get("language"),
                        "at": c.get("at"), **({"state": state[cid]["state"], "stale_nodes": state[cid]["nodes"]}
                                              if cid in state else {})})
     return listed, pages, skipped
@@ -305,15 +344,26 @@ def _round(b):
     return [round(v, 1) for v in b]
 
 
-def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index: bool = True, repack: bool = False) -> dict:
+def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index: bool = True,
+               repack: bool = False, force: bool = False) -> dict:
+    if out.exists() and not out.is_dir():
+        return {"ok": False, "errors": [f"{out} is not a directory"]}
+    if out.exists() and any(out.iterdir()) and not force and not _looks_like_site(out):
+        return {"ok": False, "errors": [f"{out} is not empty and is not a Code Atlas site; pass --force to build over it"]}
     if refresh_index:
         from .scan import scan
         scan(repo)
     data = build_data(repo, include_source, stable_layout=True, repack=repack)
     out.mkdir(parents=True, exist_ok=True)
+    for name in _owned_entries(out):  # delete only what a previous build wrote, so unrelated files survive
+        p = out / name
+        if p.resolve().parent != out.resolve():  # links, junctions and device names never take the delete elsewhere
+            continue
+        if p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
     if WEB_DIR.exists():
-        if (out / "assets").exists():  # old hashed bundles would pile up otherwise
-            shutil.rmtree(out / "assets")
         for item in WEB_DIR.iterdir():
             dst = out / item.name
             if item.is_dir():
@@ -321,8 +371,6 @@ def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index
             else:
                 shutil.copy2(item, dst)
     ddir = out / "data"
-    if ddir.exists():
-        shutil.rmtree(ddir)
     (ddir / "chunks").mkdir(parents=True)
     (ddir / "code").mkdir()
     if include_source:
@@ -340,6 +388,7 @@ def build_site(repo: Path, out: Path, include_source: bool = True, refresh_index
         (ddir / "explainers").mkdir()
         for cid, page in data["cards"].items():
             (ddir / "explainers" / f"{cid}.html").write_text(page, encoding="utf-8")
+    (out / SITE_MANIFEST).write_text(json.dumps({"version": 1, "entries": _written_entries()}), encoding="utf-8")
     g = data["graph"]
     return {"ok": True, "out": str(out), "regions": len(g["regions"]), "files": len(g["files"]),
             "symbols": g["meta"]["symbols"], "chunks": g["chunks"], "viewer": WEB_DIR.exists(),
