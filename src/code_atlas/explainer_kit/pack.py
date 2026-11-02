@@ -105,6 +105,13 @@ FOREIGN_TAGS = {"svg", "math"}
 SMIL_TAGS = {"animate", "animatemotion", "animatetransform", "discard", "set"}
 CANONICAL_CSS = f'<link rel="stylesheet" href="{CSS_PLACEHOLDER}">'
 CANONICAL_JS = f'<script src="{JS_PLACEHOLDER}">'
+# Authors quote the placeholders either way (or not at all); lint and pack both read them in the canonical form.
+_KIT_TAGS = re.compile(r"""<link\s+rel=(["']?)stylesheet\1\s+href=(["']?)""" + re.escape(CSS_PLACEHOLDER)
+                       + r"""\2\s*/?>|<script\s+src=(["']?)""" + re.escape(JS_PLACEHOLDER) + r"""\3\s*>""")
+
+
+def _canonical_kit_tags(html: str) -> str:
+    return _KIT_TAGS.sub(lambda m: CANONICAL_CSS if m.group(0).startswith("<link") else CANONICAL_JS, html)
 
 
 class _Scan(HTMLParser):
@@ -561,7 +568,7 @@ def lint_card(card: Path) -> list[str]:
     if not page.exists():
         return problems + ["index.html is missing"]
     try:
-        html = page.read_text("utf-8")
+        html = _canonical_kit_tags(page.read_text("utf-8"))
     except UnicodeError:
         return problems + ["index.html: not UTF-8"]
     except OSError as e:
@@ -629,6 +636,7 @@ def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, k
     runtime. Lint is still the first line of defence, but anything it misses (an event-handler attribute, a
     javascript: URL, an inline <script> in foreign content) cannot execute.
     """
+    html = _canonical_kit_tags(html)
     css = (PKG / "kit" / f"v{KIT_VERSION}.css").read_text("utf-8") if kit else ""
     js = (PKG / "kit" / f"v{KIT_VERSION}.js").read_text("utf-8") if kit else ""
     if media is None:
