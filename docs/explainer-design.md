@@ -127,7 +127,8 @@ Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片�
 - **没有 `<video>`。** 动画是画在 canvas 上的帧序列：可暂停、可拖拽、逐帧看字幕，`prefers-reduced-motion` 下不自动播放；
   Manim 的 mp4/webm 在 `bake` 时解码成帧。
 - **交互图表不破坏 CSP。** Vega 默认用 `new Function` 编译表达式，需要 `'unsafe-eval'`；这里改用
-  `vega.parse(spec, null, {ast: true})` 加 `vega-interpreter`，表达式走解释器，CSP 仍是 `script-src 'unsafe-inline'`。
+  `vega.parse(spec, null, {ast: true})` 加 `vega-interpreter`，表达式走解释器，所以 CSP 既不需要 `'unsafe-eval'`
+  也不需要 `'unsafe-inline'`：`script-src` 只列套件（以及按需内联的运行时）自身脚本的 sha256。
   运行时（BSD-3）在套件里只存一份，构建时只内联进声明了 `interactive` 的卡片。
 - **两个体积预算。** 页面按作者写的内容算 120 KB（内联套件与图表运行时不占作者的页面预算；套件自身另有 90 KB 上限，
   由 atlas-explainer 的测试守着，套件升级不会把没人改过的卡挤出上限）；烘焙媒体单独 2 MB（雪碧图 20–120 KB、静态图 25–60 KB、交互图约 550 KB）。
@@ -156,9 +157,10 @@ Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片�
 - 卡片里的 `atlas://file/<path>#<symbol>` 链接通过消息通道让地图定位节点；
 - 外层通过 `postMessage` 把主题（浅/深）、语言、字号倍率发给 iframe，套件据此切换 CSS 变量；iframe 回报内容高度以便自适应。
 
-**安全**：卡片经 git 在人与人之间流转，所以必须当作不可信内容。iframe 不给 `allow-same-origin`，页面带
-`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:`，
-即没有网络、没有存储、碰不到外层 DOM。构建期 lint 再拒绝外部 URL、`fetch`/`XMLHttpRequest`、`eval`，以及超过大小上限（建议单卡作者内容 ≤ 120 KB）的卡片。
+**安全**：卡片经 git 在人与人之间流转，所以必须当作不可信内容。iframe 不给 `allow-same-origin`；打包页最前面
+（作者写的任何字节之前）是 `default-src 'none'; style-src 'unsafe-inline'; script-src <套件脚本的 sha256>; img-src data:;
+font-src data:; media-src data:; base-uri 'none'; form-action 'none'`，即没有网络、没有存储、碰不到外层 DOM，
+作者的脚本、事件属性与 `javascript:` 链接也被浏览器拒绝。构建期 lint 再拒绝外部 URL、`fetch`/`XMLHttpRequest`、`eval`，以及超过大小上限（建议单卡作者内容 ≤ 120 KB）的卡片。
 
 **远端流转**：因为卡片在 `.codemap/` 里并随它提交，"上传到远端"就是普通的 `git push`；换一台机器拉下来 `codeatlas serve` 即可看到。
 `build` 生成的静态站点同样带着卡片，可直接发布到 Pages。
