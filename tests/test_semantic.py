@@ -140,3 +140,58 @@ def test_outline_and_context(tmp_path):
     assert c["ok"] and c["files"] >= 3
     assert any(d["on"] == "region:domain" for d in c["depends_on"])
     assert json.dumps(c)  # serialisable
+
+
+def test_null_sections_apply_as_empty(tmp_path):
+    repo = setup(tmp_path)
+    report = apply(repo, {"regions": [{"id": "web", "name": "Web", "role": "presentation", "responsibility": "What the user sees."}],
+                          "notes": None, "relations": None, "tours": None}, run="n1")
+    assert report["ok"], report
+
+
+def test_malformed_shapes_are_reported_not_raised(tmp_path):
+    repo = setup(tmp_path)
+    cases = [
+        ([], "must be a JSON object"),
+        ({"regions": {"id": "x"}}, "regions: must be a list"),
+        ({"regions": ["nope"]}, "regions[0]: must be an object"),
+        ({"assign": [{"match": "app/", "region": "web", "also": 3}]}, "`also` must be a list"),
+        ({"relations": [{"op": "delete", "id": ["x"]}]}, "`id` must be a string"),
+        ({"tours": [{"id": "t", "steps": [{"at": 5, "text": "x"}]}]}, "`at` must be a string"),
+        ({"tours": [{"id": "t", "title": 5}]}, "`title` must be a string"),
+        ({"config": ["x"]}, "config: must be an object"),
+    ]
+    for cs, needle in cases:
+        report, _, _ = validate(repo, cs)
+        assert not report["ok"]
+        assert any(needle in e for e in report["errors"]), (needle, report["errors"])
+        assert apply(repo, cs)["ok"] is False
+
+
+def test_run_ids_are_validated_and_collisions_refused(tmp_path):
+    repo = setup(tmp_path)
+    base = store.snapshot(repo)
+    for bad in ("../escaped", "a/b", "a:b", ".."):
+        r = apply(repo, {"notes": [{"target": "app/service.py", "text": "x"}]}, run=bad)
+        assert not r["ok"] and "run" in r["errors"][0], r
+        assert store.snapshot(repo) == base
+    assert not revert(repo, "../escaped")["ok"]
+    assert apply(repo, {"notes": [{"target": "app/service.py", "text": "one"}]}, run="dup")["ok"]
+    again = apply(repo, {"notes": [{"target": "app/service.py", "text": "two"}]}, run="dup")
+    assert not again["ok"] and "already exists" in again["errors"][0]
+    assert store.load(repo).notes["app/service.py"]["text"] == "one"
+
+
+def test_default_run_ids_do_not_collide(tmp_path, monkeypatch):
+    import code_atlas.semantic.changeset as cs_mod
+    repo = setup(tmp_path)
+    class Frozen:
+        @staticmethod
+        def strftime(fmt):
+            return "run-20260101-000000"
+    monkeypatch.setattr(cs_mod, "time", Frozen)
+    r1 = apply(repo, {"notes": [{"target": "app/service.py", "text": "one"}]})
+    r2 = apply(repo, {"notes": [{"target": "app/service.py", "text": "two"}]})
+    assert r1["ok"] and r2["ok"] and r1["run"] != r2["run"] and r2["run"].endswith("-2")
+    assert revert(repo, r2["run"])["ok"]
+    assert store.load(repo).notes["app/service.py"]["text"] == "one"

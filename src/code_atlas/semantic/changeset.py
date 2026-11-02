@@ -34,9 +34,20 @@ from .explainers import load_cards
 from .tours import check_tours
 
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 RANGE = re.compile(r"^(?P<path>.+):(?P<a>\d+)(?:-(?P<b>\d+))?$")
+SECTIONS = ("regions", "assign", "notes", "relations", "tours")
 LIMITS = {"name": 40, "responsibility": 140, "label": 48, "rationale": 200,
           "note_region": 500, "note_file": 360, "note_symbol": 280}
+
+
+def run_id_error(run) -> str | None:
+    if not isinstance(run, str):
+        return f"run id {run!r} must be a string"
+    if not RUN_ID.match(run) or ".." in run:
+        return (f"run id {run!r} must be 1–64 characters: letters, digits, '.', '_' or '-' "
+                f"(do not use '/', ':' or '..')")
+    return None
 
 
 def relation_id(src: str, dst: str, family: str, label: str) -> str:
@@ -83,6 +94,56 @@ class Checker:
             a, b = int(m.group("a")), int(m.group("b") or m.group("a"))
             return 1 <= a <= b <= (self.idx.mapped[m.group("path")]["lines"] or 0)
         return False
+
+
+def _shape_errors(cs) -> list[str]:
+    """Catch shapes _apply_ops would crash on, so agents get a JSON error list instead of a traceback."""
+    if not isinstance(cs, dict):
+        return ["changeset: must be a JSON object"]
+    errs: list[str] = []
+    cfg = cs.get("config")
+    if cfg is not None and not isinstance(cfg, dict):
+        errs.append("config: must be an object")
+    if cs.get("run") is not None and (err := run_id_error(cs["run"])):
+        errs.append("run: " + err)
+    for sec in SECTIONS:
+        items = cs.get(sec)
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            errs.append(f"{sec}: must be a list")
+            continue
+        for i, it in enumerate(items):
+            w = f"{sec}[{i}]"
+            if not isinstance(it, dict):
+                errs.append(f"{w}: must be an object")
+                continue
+            if "op" in it and not isinstance(it["op"], str):
+                errs.append(f"{w}: `op` must be a string")
+            if sec == "assign":
+                if it.get("region") is not None and not isinstance(it.get("region"), str):
+                    errs.append(f"{w}: `region` must be a string")
+                also = it.get("also")
+                if also is not None and (not isinstance(also, list) or any(not isinstance(a, str) for a in also)):
+                    errs.append(f"{w}: `also` must be a list of region ids")
+            elif sec == "relations":
+                if it.get("op", "upsert") in ("delete", "confirm") and not isinstance(it.get("id"), str):
+                    errs.append(f"{w}: `id` must be a string")
+            elif sec == "tours":
+                for k in ("title", "summary"):
+                    if it.get(k) is not None and not isinstance(it.get(k), str):
+                        errs.append(f"{w}: `{k}` must be a string")
+                steps = it.get("steps")
+                if steps is not None and not isinstance(steps, list):
+                    errs.append(f"{w}: `steps` must be a list")
+                for j, s in enumerate(steps or []):
+                    if not isinstance(s, dict):
+                        errs.append(f"{w}.steps[{j}]: must be an object")
+                        continue
+                    for k in ("at", "text", "via_relation", "card"):
+                        if s.get(k) is not None and not isinstance(s.get(k), str):
+                            errs.append(f"{w}.steps[{j}]: `{k}` must be a string")
+    return errs
 
 
 def _apply_ops(ck: Checker, cs: dict) -> dict:
@@ -342,6 +403,9 @@ def validate(repo: Path, cs: dict, idx: Index | None = None) -> tuple[dict, Sema
     idx = idx or load_index(repo)
     if not idx.mapped:
         return {"ok": False, "errors": ["the structure index is empty — run `codeatlas scan` first"], "warnings": []}, store.load(repo), {}
+    shape = _shape_errors(cs)
+    if shape:
+        return {"ok": False, "errors": shape, "warnings": [], "changes": {}, "state": {}}, store.load(repo), {}
     ck = Checker(idx, copy.deepcopy(store.load(repo)))
     ck.cards = load_cards(repo)
     counts = _apply_ops(ck, cs)
@@ -367,19 +431,31 @@ def evidence_hash(repo: Path, idx: Index, ev: str) -> str | None:
     return idx.anchor(node) if idx.exists(node) else _range_hash(repo, ev)
 
 
+@store.locked_write
 def apply(repo: Path, cs: dict, run: str | None = None) -> dict:
     idx = load_index(repo)
     before = store.snapshot(repo)
+    explicit = run if run is not None else (cs.get("run") if isinstance(cs, dict) else None)
+    if explicit is not None and (err := run_id_error(explicit)):
+        return {"ok": False, "errors": ["run: " + err], "warnings": []}
     report, sem, counts = validate(repo, cs, idx)
     if not report["ok"]:
         return report
-    run = run or cs.get("run") or time.strftime("run-%Y%m%d-%H%M%S")
+    runs = cache_dir(repo) / "runs"
+    logged = {e.get("run") for e in store.read_log(repo)}
+    if explicit is not None and ((runs / f"{explicit}.json").exists() or explicit in logged):
+        return {"ok": False, "errors": [f"run {explicit!r} already exists; pass another --run id"], "warnings": []}
+    run = explicit or time.strftime("run-%Y%m%d-%H%M%S")
+    if explicit is None:  # a second apply in the same second must not overwrite the first run's snapshot
+        base, n = run, 2
+        while (runs / f"{run}.json").exists() or run in logged:
+            run, n = f"{base}-{n}", n + 1
     at = time.strftime("%Y-%m-%dT%H:%M:%S")
     old = store.load(repo)
     confirmed = {
-        "notes": {n["target"] if n["target"].startswith(REGION_PREFIX) else idx.canonical(n["target"]) for n in cs.get("notes", []) if n.get("op") == "confirm"},
-        "relations": {r["id"] for r in cs.get("relations", []) if r.get("op") == "confirm"},
-        "tours": {t["id"] for t in cs.get("tours", []) if t.get("op") == "confirm"},
+        "notes": {n["target"] if n["target"].startswith(REGION_PREFIX) else idx.canonical(n["target"]) for n in cs.get("notes") or [] if n.get("op") == "confirm"},
+        "relations": {r["id"] for r in cs.get("relations") or [] if r.get("op") == "confirm"},
+        "tours": {t["id"] for t in cs.get("tours") or [] if t.get("op") == "confirm"},
     }
     for nid, n in sem.notes.items():
         prev = old.notes.get(nid)
@@ -405,24 +481,30 @@ def apply(repo: Path, cs: dict, run: str | None = None) -> dict:
         for s in t["steps"]:
             s["anchor"] = idx.anchor(s["at"])
         t.update({"run": run, "at": at})
-    store.save(repo, sem)
-    after = store.snapshot(repo)
-    runs = cache_dir(repo) / "runs"
-    runs.mkdir(parents=True, exist_ok=True)
-    (runs / f"{run}.json").write_text(json.dumps({"before": before, "after": after}, ensure_ascii=False), encoding="utf-8")
-    store.append_log(repo, {"run": run, "at": at, "intent": cs.get("intent"), "changes": counts,
-                            "state": report.get("state")})
+    try:
+        store.save(repo, sem)
+        after = store.snapshot(repo)
+        runs.mkdir(parents=True, exist_ok=True)
+        store.write_atomic(runs / f"{run}.json", json.dumps({"before": before, "after": after}, ensure_ascii=False))
+        store.append_log(repo, {"run": run, "at": at, "intent": cs.get("intent"), "changes": counts,
+                                "state": report.get("state")})
+    except Exception as e:  # a half-written layer would have no snapshot to revert to
+        store.restore(repo, before)
+        return {"ok": False, "errors": [f"could not write the semantic layer: {e}"], "warnings": []}
     return {**report, "run": run}
 
 
+@store.locked_write
 def revert(repo: Path, run: str) -> dict:
+    if err := run_id_error(run):
+        return {"ok": False, "error": "run: " + err}
     f = cache_dir(repo) / "runs" / f"{run}.json"
     if not f.exists():
         return {"ok": False, "error": f"no snapshot for {run} on this machine"}
     snap = json.loads(f.read_text("utf-8"))
     current = {k: v for k, v in store.snapshot(repo).items() if k != "log.jsonl"}
     after = {k: v for k, v in snap["after"].items() if k != "log.jsonl"}
-    if current != after:
+    if store.fingerprint(current) != store.fingerprint(after):
         return {"ok": False, "error": f"the semantic layer changed after {run}; revert later runs first"}
     store.restore(repo, snap["before"])
     store.append_log(repo, {"run": f"revert:{run}", "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "intent": "revert"})

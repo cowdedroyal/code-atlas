@@ -38,15 +38,30 @@ def cards_dir(repo: Path) -> Path:
     return store.root(repo) / DIRNAME
 
 
+def _valid_card(m: object, dirname: str) -> bool:
+    """Whether a stored manifest has the types card_status/search/_write_card rely on (cards are untrusted input)."""
+    if not isinstance(m, dict) or m.get("id") != dirname:
+        return False
+    if not all(isinstance(m.get(k), str) for k in ("title", "summary")):
+        return False
+    for key in ("questions", "tags"):
+        if key in m and not (isinstance(m[key], list) and all(isinstance(x, str) for x in m[key])):
+            return False
+    if not (isinstance(m.get("anchors"), list) and all(isinstance(x, str) for x in m["anchors"])):
+        return False
+    hashes = m.get("anchor_hashes")
+    return hashes is None or isinstance(hashes, dict)
+
+
 def load_cards(repo: Path) -> dict[str, dict]:
     out = {}
     d = cards_dir(repo)
     for f in sorted(d.glob("*/card.yaml")) if d.exists() else []:
         try:
             m = yaml.safe_load(f.read_text("utf-8")) or {}
-        except yaml.YAMLError:
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
             continue
-        if isinstance(m, dict) and m.get("id") == f.parent.name:
+        if _valid_card(m, f.parent.name):
             out[m["id"]] = m
     return out
 
@@ -89,9 +104,20 @@ def validate_card(repo: Path, src: Path, idx: Index | None = None) -> dict:
         return {"ok": False, "errors": ["the structure index is empty — run `codeatlas scan` first"], "warnings": []}
     if not (src / "card.yaml").exists():
         return {"ok": False, "errors": [f"{src}: no card.yaml"], "warnings": []}
-    errors = lint_card(src)
     warnings: list[str] = []
-    manifest = load_manifest(src)
+    try:
+        manifest = load_manifest(src)
+    except yaml.YAMLError as e:
+        return {"ok": False, "errors": [f"card.yaml: not valid YAML ({e})"], "warnings": []}
+    except (OSError, UnicodeDecodeError) as e:
+        return {"ok": False, "errors": [f"card.yaml: unreadable ({e})"], "warnings": []}
+    if not isinstance(manifest, dict):
+        return {"ok": False, "errors": ["card.yaml: must be a mapping of kit, id, title, questions, summary and anchors"],
+                "warnings": []}
+    try:
+        errors = lint_card(src)
+    except (OSError, UnicodeDecodeError) as e:  # lint_card reads index.html and media as UTF-8 too
+        return {"ok": False, "errors": [f"index.html: unreadable ({e})"], "warnings": []}
     sem = store.load(repo)
     anchors = manifest.get("anchors") if isinstance(manifest.get("anchors"), list) else []
     for a in anchors:
@@ -104,13 +130,18 @@ def validate_card(repo: Path, src: Path, idx: Index | None = None) -> dict:
     return {"ok": not errors, "errors": errors, "warnings": warnings, "id": cid}
 
 
+def _keep(m: dict, keys: tuple[str, ...]) -> dict:
+    """The subset written to disk: empty values are dropped, so both sides of a comparison must be normalized."""
+    return {k: m[k] for k in keys if m.get(k) not in (None, [], {})}
+
+
 def _write_card(dst: Path, manifest: dict, html: str) -> None:
     dst.mkdir(parents=True, exist_ok=True)
-    body = {k: manifest[k] for k in MANIFEST_KEYS if manifest.get(k) not in (None, [], {})}
+    body = _keep(manifest, MANIFEST_KEYS)
     text = "# An explainer card. Written via `codeatlas card apply`.\n" + yaml.safe_dump(
         body, allow_unicode=True, sort_keys=False, width=110, default_flow_style=False)
-    (dst / "card.yaml").write_text(text, encoding="utf-8", newline="\n")
-    (dst / "index.html").write_text(html, encoding="utf-8", newline="\n")
+    store.write_atomic(dst / "card.yaml", text, newline="\n")
+    store.write_atomic(dst / "index.html", html, newline="\n")
 
 
 def baked_media(card: Path) -> dict[str, bytes]:
@@ -119,7 +150,8 @@ def baked_media(card: Path) -> dict[str, bytes]:
     A Vega-Lite spec (`*.vl.json`) and the frames a sheet was made from are inputs to `bake`, not part of the card:
     copying them would mean committing a Motion Canvas project (with `node_modules`) to the mapped repository. A scene
     is different — `media/scenes/<name>.yaml` *is* the explanation, a few kilobytes of text — so it travels with the
-    card and can be edited and re-baked in place.
+    card and can be edited and re-baked in place. Only the sources a baked scene names are copied, and never through
+    a symlink: these files end up in a card that is committed and pushed.
     """
     from ..explainer_kit.pack import media_path, load_media, sheet_path
     manifests, errors = load_media(card)
@@ -132,10 +164,18 @@ def baked_media(card: Path) -> dict[str, bytes]:
         if manifest["kind"] == "anim":
             p = sheet_path(card, manifest)
             files[p.name] = p.read_bytes()
-    scenes = card / "media" / "scenes"
-    if scenes.is_dir():
-        for p in sorted(scenes.iterdir()):
-            if p.is_file() and p.suffix.lower() in (".yaml", ".yml", ".json"):
+    media_root = (card / "media").resolve()
+    if media_root.is_relative_to(card.resolve()):
+        for manifest in manifests.values():
+            if manifest["kind"] != "scene":
+                continue
+            for rel in (manifest.get("sources") or {}):
+                parts = Path(rel).parts
+                if len(parts) != 3 or parts[:2] != ("media", "scenes"):
+                    continue
+                p = card / rel
+                if p.is_symlink() or not p.is_file() or not p.resolve().is_relative_to(media_root):
+                    continue
                 files[f"scenes/{p.name}"] = p.read_bytes()
     return files
 
@@ -147,13 +187,13 @@ def _write_media(dst: Path, files: dict[str, bytes]) -> None:
             shutil.rmtree(d)
         return
     d.mkdir(parents=True, exist_ok=True)
-    for name, data in files.items():
-        (d / name).parent.mkdir(parents=True, exist_ok=True)
-        (d / name).write_bytes(data)
     keep = set(files)
-    for p in sorted(d.rglob("*")):             # a re-applied card must not keep a sheet or scene it no longer uses
-        if p.is_file() and p.relative_to(d).as_posix() not in keep:
-            p.unlink()
+    for p in sorted(d.rglob("*")):             # a re-applied card must not keep a sheet or scene it no longer uses;
+        if p.is_file() and p.relative_to(d).as_posix() not in keep:  # delete first so a case-only rename on a
+            p.unlink()                                                # case-insensitive filesystem does not unlink
+    for name, data in files.items():                                  # the file that was just written
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        store.write_atomic(d / name, data)
     for p in sorted(d.rglob("*"), reverse=True):
         if p.is_dir() and not any(p.iterdir()):
             p.rmdir()
@@ -162,11 +202,12 @@ def _write_media(dst: Path, files: dict[str, bytes]) -> None:
 def _record(repo: Path, run: str, at: str, before: dict, change: dict, intent: str) -> None:
     runs = cache_dir(repo) / "runs"
     runs.mkdir(parents=True, exist_ok=True)
-    (runs / f"{run}.json").write_text(json.dumps({"before": before, "after": store.snapshot(repo)}, ensure_ascii=False),
-                                      encoding="utf-8")
+    store.write_atomic(runs / f"{run}.json",
+                       json.dumps({"before": before, "after": store.snapshot(repo)}, ensure_ascii=False))
     store.append_log(repo, {"run": run, "at": at, "intent": intent, "changes": change})
 
 
+@store.locked_write
 def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None = None) -> dict:
     idx = idx or load_index(repo)
     report = validate_card(repo, src, idx)
@@ -186,7 +227,7 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
             old_media = baked_media(cards_dir(repo) / cid)
         except (ValueError, OSError):
             old_html, old_media = None, None  # A valid re-apply can repair a damaged stored card.
-        same = (all(old.get(k) == manifest.get(k) for k in CONTENT_KEYS) and old_html == html
+        same = (_keep(old, CONTENT_KEYS) == _keep(manifest, CONTENT_KEYS) and old_html == html
                 and old_media == media)
         if same:  # identical content keeps its original anchors and run, like notes
             return {**report, "unchanged": True, "run": old.get("run")}
@@ -200,6 +241,7 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
     return {**report, "run": run}
 
 
+@store.locked_write
 def confirm_card(repo: Path, cid: str, run: str | None = None) -> dict:
     """Refresh a card's anchor hashes after reviewing it against the current code; its text is untouched."""
     idx = load_index(repo)
@@ -222,6 +264,7 @@ def confirm_card(repo: Path, cid: str, run: str | None = None) -> dict:
     return {"ok": True, "run": run}
 
 
+@store.locked_write
 def delete_card(repo: Path, cid: str, run: str | None = None) -> dict:
     if cid not in load_cards(repo):
         return {"ok": False, "errors": [f"no card {cid!r}"]}
