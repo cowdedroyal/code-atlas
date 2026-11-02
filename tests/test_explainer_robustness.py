@@ -1,6 +1,7 @@
 """Cards are untrusted input: damaged manifests, stray files, symlinks and reverts must not break the commands."""
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,11 +15,11 @@ from code_atlas.semantic.agenda import agenda
 from code_atlas.semantic.changeset import apply as apply_changeset
 from code_atlas.semantic.changeset import revert, validate
 from code_atlas.semantic.context import semantic_status
-from code_atlas.semantic.explainers import (apply_card, cards_dir, delete_card, load_cards, search_cards,
-                                            validate_card)
+from code_atlas.semantic.explainers import (apply_card, cards_dir, confirm_card, delete_card, load_cards,
+                                            search_cards, validate_card)
 from code_atlas.site import build_data
 
-from test_explainers import MEDIA_PAGE, PAGE, SCENE_PAGE, SCENE_YAML, WEBP, _baked_anim, draft
+from test_explainers import MEDIA_PAGE, PAGE, SCENE_PAGE, SCENE_YAML, WEBP, _baked_anim, draft, edit_source
 from test_tours import setup
 
 NOTE = {"intent": "note", "notes": [{"target": "app/models.py#User", "text": "A user; greeting saves it first."}]}
@@ -176,3 +177,48 @@ def test_case_only_media_rename_keeps_the_new_files(tmp_path):
     assert apply_card(repo, lower, run="a2")["ok"]
     assert sorted(p.name for p in (cards_dir(repo) / "user-flow/media").iterdir()) == ["flow.json", "flow.webp"]
     assert "user-flow" in build_data(repo)["cards"]
+
+
+def test_confirm_reports_a_damaged_stored_page_instead_of_raising(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, draft(tmp_path), run="c1")["ok"]
+    edit_source(repo, "app/models.py", "A user.", "A person.")  # confirm now has a hash to refresh
+    page = cards_dir(repo) / "user-flow" / "index.html"
+    for data in (None, "中文".encode("utf-16")):
+        if data is None:
+            page.unlink()
+        else:
+            page.write_bytes(data)
+        r = confirm_card(repo, "user-flow")
+        assert not r["ok"] and any("index.html is unreadable" in e for e in r["errors"]), r
+    out = CliRunner().invoke(app, ["card", "confirm", "user-flow", "-r", str(repo)])
+    assert out.exit_code == 1
+    assert json.loads(out.output)["ok"] is False  # a JSON report, not a traceback
+
+
+def test_a_nested_or_alias_heavy_card_yaml_is_skipped_not_fatal(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, draft(tmp_path), run="c1")["ok"]
+    p = cards_dir(repo) / "user-flow" / "card.yaml"
+    p.write_text("x: " + "[" * 3000 + "]" * 3000 + "\n", "utf-8")  # RecursionError inside safe_load
+    assert load_cards(repo) == {}
+    assert search_cards(repo)["total"] == 0
+    p.write_text("a: &a [" + ",".join(["x"] * 1000) + "]\nb: [" + ",".join(["*a"] * 5000) + "]\n", "utf-8")
+    assert load_cards(repo) == {}  # parses without hanging, then fails the card shape check
+    out = CliRunner().invoke(app, ["card", "search", "-r", str(repo)])
+    assert out.exit_code == 0 and json.loads(out.output)["ok"]
+
+
+def test_confirm_without_a_scan_asks_for_one(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, draft(tmp_path), run="c1")["ok"]
+    shutil.rmtree(repo / ".codemap/cache")  # the fresh-clone state: the cache is not committed
+    r = confirm_card(repo, "user-flow")
+    assert not r["ok"] and r["errors"] == ["the structure index is empty — run `codeatlas scan` first"]
+
+
+def test_confirm_without_a_scan_still_works_for_region_only_cards(tmp_path):
+    repo = setup(tmp_path)
+    assert apply_card(repo, draft(tmp_path, anchors=("region:services",)), run="c1")["ok"]
+    shutil.rmtree(repo / ".codemap/cache")
+    assert confirm_card(repo, "user-flow") == {"ok": True, "unchanged": True}  # regions come from regions.yaml

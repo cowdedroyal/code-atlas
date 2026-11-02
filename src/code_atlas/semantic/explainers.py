@@ -16,6 +16,7 @@ missing source is not treated as stale.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import time
@@ -38,6 +39,39 @@ def cards_dir(repo: Path) -> Path:
     return store.root(repo) / DIRNAME
 
 
+def _linked(p: Path) -> bool:
+    """A symlink or a Windows junction (`is_symlink()` is false for junctions)."""
+    return p.is_symlink() or p.is_junction()
+
+
+def _inside(p: Path, base: Path) -> bool:
+    return p.resolve().is_relative_to(base.resolve())
+
+
+def _link_error(repo: Path, cid: str | None = None) -> str | None:
+    """Why card storage must not be touched, or None: a link/junction in the way, or a target outside the repo.
+
+    Cards arrive through git, so a committed symlink or junction must never let a card command read, write or delete
+    outside `.codemap/explainers`.
+    """
+    d = cards_dir(repo)
+    if _linked(d) or not _inside(d, repo):
+        return f"{d}: cards must not be reached through a symlink or junction, or outside the repository"
+    if cid is None:
+        return None
+    p = d / cid
+    if _linked(p) or not _inside(p, d) or not _inside(p, repo):
+        return f"{p}: cards must not be reached through a symlink or junction, or outside the repository"
+    if p.is_dir():
+        for root, dirs, files in os.walk(p, followlinks=False):
+            for name in dirs + files:  # os.walk descends junctions even with followlinks=False
+                q = Path(root) / name
+                if _linked(q) or not _inside(q, repo):
+                    return f"{q}: a card must not contain a symlink or junction, or a path outside the repository"
+            dirs[:] = [n for n in dirs if not _linked(Path(root) / n)]
+    return None
+
+
 def _valid_card(m: object, dirname: str) -> bool:
     """Whether a stored manifest has the types card_status/search/_write_card rely on (cards are untrusted input)."""
     if not isinstance(m, dict) or m.get("id") != dirname:
@@ -56,11 +90,15 @@ def _valid_card(m: object, dirname: str) -> bool:
 def load_cards(repo: Path) -> dict[str, dict]:
     out = {}
     d = cards_dir(repo)
-    for f in sorted(d.glob("*/card.yaml")) if d.exists() else []:
+    if not d.is_dir() or _linked(d):
+        return out
+    for f in sorted(d.glob("*/card.yaml")):
+        if _linked(f.parent) or _linked(f):
+            continue
         try:
             m = yaml.safe_load(f.read_text("utf-8")) or {}
-        except (OSError, UnicodeDecodeError, yaml.YAMLError):
-            continue
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, RecursionError, MemoryError):
+            continue  # deeply nested or alias-bomb YAML is just another damaged card
         if _valid_card(m, f.parent.name):
             out[m["id"]] = m
     return out
@@ -209,6 +247,8 @@ def _record(repo: Path, run: str, at: str, before: dict, change: dict, intent: s
 
 @store.locked_write
 def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None = None) -> dict:
+    if err := _link_error(repo):
+        return {"ok": False, "errors": [err], "warnings": []}
     idx = idx or load_index(repo)
     report = validate_card(repo, src, idx)
     if not report["ok"]:
@@ -216,6 +256,8 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
     manifest = load_manifest(src)
     html = (src / "index.html").read_text("utf-8").replace("\r\n", "\n")
     cid = manifest["id"]
+    if isinstance(cid, str) and (err := _link_error(repo, cid)):
+        return {**report, "ok": False, "errors": [err]}
     old = load_cards(repo).get(cid)
     anchors = [_canonical(idx, a) for a in manifest["anchors"]]
     manifest["anchors"] = anchors
@@ -244,11 +286,15 @@ def apply_card(repo: Path, src: Path, run: str | None = None, idx: Index | None 
 @store.locked_write
 def confirm_card(repo: Path, cid: str, run: str | None = None) -> dict:
     """Refresh a card's anchor hashes after reviewing it against the current code; its text is untouched."""
+    if err := _link_error(repo, cid):
+        return {"ok": False, "errors": [err]}
     idx = load_index(repo)
     sem = store.load(repo)
     card = load_cards(repo).get(cid)
     if not card:
         return {"ok": False, "errors": [f"no card {cid!r}"]}
+    if not idx.mapped and any(not a.startswith(REGION_PREFIX) for a in card.get("anchors", [])):
+        return {"ok": False, "errors": ["the structure index is empty — run `codeatlas scan` first"]}
     gone = [a for a in card.get("anchors", []) if not _anchor_exists(idx, sem, _canonical(idx, a))]
     if gone:
         return {"ok": False, "errors": [f"anchor {a!r} no longer exists; repair the card with `card apply` first" for a in gone]}
@@ -258,7 +304,10 @@ def confirm_card(repo: Path, cid: str, run: str | None = None) -> dict:
     run = run or time.strftime("run-%Y%m%d-%H%M%S")
     at = time.strftime("%Y-%m-%dT%H:%M:%S")
     before = store.snapshot(repo)
-    html = (cards_dir(repo) / cid / "index.html").read_text("utf-8")
+    try:
+        html = (cards_dir(repo) / cid / "index.html").read_text("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return {"ok": False, "errors": [f"card {cid}: index.html is unreadable ({e}); repair it with `card apply`"]}
     _write_card(cards_dir(repo) / cid, {**card, "anchor_hashes": hashes, "run": run, "at": at}, html)
     _record(repo, run, at, before, {"cards": 1}, "card-confirm")
     return {"ok": True, "run": run}
@@ -266,6 +315,8 @@ def confirm_card(repo: Path, cid: str, run: str | None = None) -> dict:
 
 @store.locked_write
 def delete_card(repo: Path, cid: str, run: str | None = None) -> dict:
+    if err := _link_error(repo, cid):
+        return {"ok": False, "errors": [err]}
     if cid not in load_cards(repo):
         return {"ok": False, "errors": [f"no card {cid!r}"]}
     run = run or time.strftime("run-%Y%m%d-%H%M%S")

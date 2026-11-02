@@ -30,6 +30,8 @@ from pathlib import Path
 
 import yaml
 
+from ..index import check_unlinked
+
 ROLES = ("interface", "orchestration", "core", "state", "integration", "presentation", "foundation", "tooling")
 FAMILIES = ("control", "data", "contract", "config", "observe")
 REGION_PREFIX = "region:"
@@ -96,6 +98,10 @@ def write_lock(repo: Path):
             held[key] -= 1
         return
     d = root(repo) / "cache"
+    try:
+        check_unlinked(repo, d)
+    except ValueError as e:
+        raise WriteLocked(str(e)) from None
     d.mkdir(parents=True, exist_ok=True)
     p = d / "write.lock"
     fd = os.open(p, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0))
@@ -178,6 +184,11 @@ def _safe_name(d: Path, name: object) -> Path:
     if not p.resolve().is_relative_to(d.resolve()):
         raise ValueError(f"snapshot path escapes {d.name}: {name!r}")
     return p
+
+
+def _linked(p: Path) -> bool:
+    """A symlink or a Windows junction (`is_symlink()` is false for junctions)."""
+    return p.is_symlink() or p.is_junction()
 
 
 def _read_yaml(path: Path, key: str) -> list | dict | None:
@@ -315,10 +326,14 @@ def snapshot(repo: Path) -> dict[str, str | dict]:
             for f in (d / sub).glob(pattern):
                 if f.is_file():
                     out[f.relative_to(d).as_posix()] = f.read_text("utf-8")
-    if (d / "explainers").exists():
-        for f in (d / "explainers").rglob("*"):
-            if f.is_file() and not f.is_symlink():
-                out[f.relative_to(d).as_posix()] = _snapshot_value(f, repo)
+    exp = d / "explainers"
+    if exp.is_dir() and not _linked(exp):  # never walk into a linked cards directory
+        for dirpath, dirnames, filenames in os.walk(exp, followlinks=False):
+            dirnames[:] = [n for n in dirnames if not _linked(Path(dirpath) / n)]  # os.walk descends junctions
+            for name in filenames:
+                f = Path(dirpath) / name
+                if not _linked(f):
+                    out[f.relative_to(d).as_posix()] = _snapshot_value(f, repo)
     return out
 
 
