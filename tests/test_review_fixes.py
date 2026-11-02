@@ -5,6 +5,9 @@ import socket
 import subprocess
 import sys
 
+import pytest
+
+from code_atlas import site
 from code_atlas.scan import scan
 from code_atlas.semantic import store
 from code_atlas.semantic.changeset import apply
@@ -12,7 +15,19 @@ from code_atlas.semantic.explainers import apply_card, load_cards
 from code_atlas.site import build_data, build_site, linted_cards
 
 from test_scan import REPO, write
+from test_site import _link_dir
 from test_tours import TOUR, card_draft
+
+
+@pytest.fixture
+def web(tmp_path, monkeypatch):
+    """A stand-in viewer bundle: src/code_atlas/web is a build artifact, absent from a fresh checkout and from CI."""
+    d = tmp_path / "web"
+    (d / "assets").mkdir(parents=True)
+    (d / "index.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (d / "assets" / "app.js").write_text("", encoding="utf-8")
+    monkeypatch.setattr(site, "WEB_DIR", d)
+    return d
 
 
 def test_serve_fails_clearly_when_the_port_is_taken(tmp_path):
@@ -71,7 +86,8 @@ def test_serve_rebuilds_over_its_own_partial_cache(tmp_path):
             time.sleep(0.1)
         assert p.poll() is None, "serve exited on its own partial cache"
         assert (out / "data" / "graph.json").exists()
-        assert (out / "index.html").read_text(encoding="utf-8") != "partial"
+        if site.WEB_DIR.exists():  # serve runs in its own process, so it can only replace a viewer that was built
+            assert (out / "index.html").read_text(encoding="utf-8") != "partial"
     finally:
         p.terminate()
         try:
@@ -81,9 +97,8 @@ def test_serve_rebuilds_over_its_own_partial_cache(tmp_path):
             p.wait()
 
 
-def test_build_refuses_to_write_through_a_link_in_the_output(tmp_path):
+def test_build_refuses_to_write_through_a_link_in_the_output(tmp_path, web):
     import shutil
-    import pytest
     write(tmp_path, REPO)
     scan(tmp_path)
     out = tmp_path / "site"
@@ -92,17 +107,14 @@ def test_build_refuses_to_write_through_a_link_in_the_output(tmp_path):
     victim.mkdir()
     (victim / "keep.txt").write_text("keep", encoding="utf-8")
     shutil.rmtree(out / "assets")
-    made = subprocess.run(["cmd", "/c", "mklink", "/J", str(out / "assets"), str(victim)],
-                          capture_output=True, text=True)
-    if made.returncode != 0:
-        pytest.skip("cannot create a junction here")
+    _link_dir(out / "assets", victim)
     report = build_site(tmp_path, out, refresh_index=False)
     assert not report["ok"] and "symlink or junction" in report["errors"][0]
     assert (victim / "keep.txt").read_text(encoding="utf-8") == "keep"
     assert {p.name for p in victim.iterdir()} == {"keep.txt"}
 
 
-def test_manifest_entries_that_cannot_be_paths_are_ignored(tmp_path):
+def test_manifest_entries_that_cannot_be_paths_are_ignored(tmp_path, web):
     write(tmp_path, REPO)
     scan(tmp_path)
     out = tmp_path / "site"
