@@ -201,6 +201,18 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
   }, []);
   const fileIndex = useMemo(() => new Map(graph.files.map((f, i) => [f.id, i])), [graph]);
   const scopeIds = useMemo(() => new Set(graph.files.map(f => f.module_scope).filter(Boolean)), [graph]);
+  // Per-file adjacency built once per graph instead of rescanning every file edge per render.
+  const fileEdges = useMemo(() => {
+    type Item = { id: string; type: string; count: number };
+    const out = new Map<number, Item[]>(), inc = new Map<number, Item[]>();
+    const at = (m: Map<number, Item[]>, i: number) => m.get(i) ?? m.set(i, []).get(i)!;
+    for (const [a, b, w, types] of graph.file_edges) {
+      at(out, a).push({ id: graph.files[b].id, type: types[0], count: Math.round(w) });
+      at(inc, b).push({ id: graph.files[a].id, type: types[0], count: Math.round(w) });
+    }
+    for (const list of [...out.values(), ...inc.values()]) list.sort((x, y) => y.count - x.count);
+    return { out, inc };
+  }, [graph]);
   const nameOf = (id: string) => scopeIds.has(id) ? t("moduleScope") : id.includes("#") ? id.split("#")[1] : id.split("/").pop()!;
   const [chunk, setChunk] = useState<Chunk | null>(null);
   const fileIdx = selection.type === "file" ? selection.index : selection.type === "symbol" ? selection.file : null;
@@ -229,6 +241,26 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
 
   const cards = useMemo(() => explainersFor(graph, selection), [graph, selection]);
   const explainers = <ExplainerList cards={cards} open={openCard} />;
+  // Symbol lookups and edges across every cached chunk, built once per chunks/selection change.
+  const symbolIndex = useMemo(() => {
+    const all = new Map<string, SymbolNode>();
+    for (const c of [chunk, ...chunks.values()]) for (const s of c?.symbols ?? []) all.set(s.id, s);
+    return all;
+  }, [chunk, chunks]);
+  const symbolDetail = useMemo(() => {
+    if (selection.type !== "symbol") return null;
+    const s = symbolIndex.get(selection.id);
+    const out = new Map<string, { id: string; type: string; count: number }>();
+    const inc = new Map<string, { id: string; type: string; count: number }>();
+    const mine = (id: string) => id === selection.id || id.startsWith(selection.id + ".");
+    for (const c of [chunk, ...chunks.values()])
+      for (const [a, b, type, , count] of c?.edges ?? []) {
+        if (mine(a) && !mine(b)) out.set(b + type, { id: b, type, count });
+        if (mine(b) && !mine(a)) inc.set(a + type, { id: a, type, count });
+      }
+    const kids = [...symbolIndex.values()].filter((x) => x.parent === selection.id);
+    return { s, out: [...out.values()], inc: [...inc.values()], kids };
+  }, [selection, symbolIndex, chunk, chunks]);
 
   let body: React.ReactElement;
   if (selection.type === "region") {
@@ -273,13 +305,8 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
       </>
     );
   } else if (selection.type === "file" && file) {
-    const out: { id: string; type: string; count: number }[] = [];
-    const inc: { id: string; type: string; count: number }[] = [];
-    for (const [a, b, w, types] of graph.file_edges) {
-      if (a === fileIdx) out.push({ id: graph.files[b].id, type: types[0], count: Math.round(w) });
-      if (b === fileIdx) inc.push({ id: graph.files[a].id, type: types[0], count: Math.round(w) });
-    }
-    out.sort((x, y) => y.count - x.count); inc.sort((x, y) => y.count - x.count);
+    const out = fileEdges.out.get(fileIdx!) ?? [];
+    const inc = fileEdges.inc.get(fileIdx!) ?? [];
     const syms = (chunk?.symbols ?? []).filter((s) => s.file === fileIdx && !s.parent);
     const r = graph.regions[file.region];
     body = (
@@ -318,18 +345,7 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
       </>
     );
   } else if (selection.type === "symbol" && file) {
-    const all = new Map<string, SymbolNode>();
-    for (const c of [chunk, ...chunks.values()]) for (const s of c?.symbols ?? []) all.set(s.id, s);
-    const s = all.get(selection.id);
-    const out = new Map<string, { id: string; type: string; count: number }>();
-    const inc = new Map<string, { id: string; type: string; count: number }>();
-    const mine = (id: string) => id === selection.id || id.startsWith(selection.id + ".");
-    for (const c of [chunk, ...chunks.values()])
-      for (const [a, b, type, , count] of c?.edges ?? []) {
-        if (mine(a) && !mine(b)) out.set(b + type, { id: b, type, count });
-        if (mine(b) && !mine(a)) inc.set(a + type, { id: a, type, count });
-      }
-    const kids = [...all.values()].filter((x) => x.parent === selection.id);
+    const { s, out, inc, kids } = symbolDetail!;
     body = s ? (
       <>
         <div className="eyebrow" onClick={() => navigate({ type: "file", index: fileIdx! })} style={{ cursor: "pointer" }}>
@@ -355,8 +371,8 @@ export default function Panel({ graph, chunks, selection, navigate, close, width
             </ul>
           </section>
         )}
-        <EdgeList title={t("outgoing")} items={[...out.values()]} navigate={goId} nameOf={nameOf} />
-        <EdgeList title={t("incoming")} items={[...inc.values()]} navigate={goId} nameOf={nameOf} />
+        <EdgeList title={t("outgoing")} items={out} navigate={goId} nameOf={nameOf} />
+        <EdgeList title={t("incoming")} items={inc} navigate={goId} nameOf={nameOf} />
         <Source key={s.id} chunk={file.chunk} path={file.id} lang={file.lang} from={s.start} to={s.end} openFile={openFile}
                 moduleScope={s.kind === "module_scope" ? s : undefined} />
       </>

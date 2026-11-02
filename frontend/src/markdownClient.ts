@@ -22,15 +22,17 @@ export function decodeMarkdownText(text: string): string {
 export function safeMarkdownLink(href: string): string | null {
   const clean = decodeMarkdownText(href).trim();
   // Reject control characters and arbitrary URI schemes before rendering an anchor.
-  if (/[\u0000-\u0020\u007f]/.test(clean)) return null;
+  if (/[\u0000-\u001f\u007f]/.test(clean)) return null;
   if (/^[a-z][a-z0-9+.-]*:/i.test(clean) && !/^(https?:|mailto:)/i.test(clean)) return null;
   if (/^[\\/]{2}/.test(clean)) return null;
   return clean;
 }
 
 export function repositoryLink(href: string, path: string | undefined): string | null {
-  if (!path || !href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
-  const parts = href.startsWith("/") ? [] : path.split("/").slice(0, -1);
+  if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  // absolute hrefs resolve from the repository root, so they need no base path
+  const parts = href.startsWith("/") ? [] : path ? path.split("/").slice(0, -1) : null;
+  if (!parts) return null;
   let target: string;
   try { target = decodeURIComponent(href.split(/[?#]/)[0]); } catch { return null; }
   for (const part of target.replace(/\\/g, "/").split("/")) {
