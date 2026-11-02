@@ -53,15 +53,6 @@ function scaleFor(width: number): number {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/** Runs inside the sandboxed card, whose key events never reach this page: forward Escape as a message. */
-const ESCAPE_SHIM = '<script>window.addEventListener("keydown",function(e){' +
-  'if(e.key!=="Escape"||document.body.classList.contains("ex-cinema-on"))return;' +
-  'parent.postMessage({type:"atlas:close"},"*");},true);</script>';
-const withEscapeShim = (html: string) => {  // the last </body>: card text or JSON data may contain the string too
-  const end = html.lastIndexOf("</body>");
-  return end < 0 ? html + ESCAPE_SHIM : html.slice(0, end) + ESCAPE_SHIM + html.slice(end);
-};
-
 /** Keeps a box inside the viewport and above the minimum size (or the viewport, if that is smaller). */
 function fit(b: Box): Box {
   const w = Math.min(window.innerWidth, Math.max(MIN_W, b.w)), h = Math.min(window.innerHeight, Math.max(MIN_H, b.h));
@@ -146,7 +137,7 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   useEffect(() => {
     let live = true;
     setHtml(undefined);
-    loadCard(card.id).then((h) => live && setHtml(h === null ? null : withEscapeShim(h)));
+    loadCard(card.id).then((h) => live && setHtml(h));
     return () => { live = false; };
   }, [card.id]);
 
@@ -157,7 +148,7 @@ export function ExplainerReader({ card, graph, dark, close, navigate }: ReaderPr
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow) return;
-      // Escape pressed while focus is inside the card, forwarded by ESCAPE_SHIM.
+      // Escape pressed while focus is inside the card, posted by the kit outside cinema mode.
       if (e.data && typeof e.data === "object" && (e.data as Record<string, unknown>).type === "atlas:close") { close(); return; }
       const msg = parseCardMessage(e.data);
       if (!msg) return;
