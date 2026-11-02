@@ -160,7 +160,8 @@ class _Walker:
             if not subs:
                 break
             for n in subs:
-                expr = re.sub(rf"\b{n}\b", "(" + self.values[n] + ")", expr)
+                # a function replacement keeps backslashes in the source text literal (r"..\lib")
+                expr = re.sub(rf"\b{re.escape(n)}\b", lambda _m, v=self.values[n]: "(" + v + ")", expr)
         if "__file__" not in expr:
             return None
         ups = expr.count(".parent") + expr.count("dirname(")
@@ -244,7 +245,10 @@ class _Walker:
                                 left, right = a.child_by_field_name("left"), a.child_by_field_name("right")
                                 if left is not None and left.type == "identifier" and right is not None:
                                     self.values.setdefault(text_of(left, self.src), text_of(right, self.src))
-                        rel = self.eval_path(text_of(args.named_children[-1], self.src))
+                        try:  # a heuristic must never cost the file its facts
+                            rel = self.eval_path(text_of(args.named_children[-1], self.src))
+                        except Exception:
+                            rel = None
                         if rel is not None:
                             self.syspath.append(rel)
                 if fn is not None:

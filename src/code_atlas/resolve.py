@@ -70,7 +70,10 @@ class Resolver(LangImports):
         self.syms: dict[str, dict[str, dict]] = {p: {s["q"]: s for s in fx["symbols"]} for p, fx in facts.items()}
         self.top: dict[str, dict[str, str]] = {}
         self.members: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
-        for p, fx in facts.items():
+        # Indexes are built in sorted path order: resolution must not depend on the order scan() filled
+        # `facts` (cache hits first, then re-parsed files), so full and incremental scans agree.
+        for p in sorted(facts):
+            fx = facts[p]
             top = {}
             for s in fx["symbols"]:
                 if s["p"] is None and "." in s["q"] and s["k"] in ("method", "field"):
@@ -82,12 +85,13 @@ class Resolver(LangImports):
                     self.members[p][s["p"]].setdefault(s["n"], s["q"])
             self.top[p] = top
         self.by_dir: dict[str, list[str]] = defaultdict(list)
-        for p in facts:
+        for p in sorted(facts):
             self.by_dir[posixpath.dirname(p)].append(p)
         self._py_index()
         # extra import roots from sys.path manipulation, relative to the repo
         self.extra_roots: dict[str, list[str]] = {}
-        for p, fx in facts.items():
+        for p in sorted(facts):
+            fx = facts[p]
             roots = []
             for rel in fx.get("syspath", []):
                 r = posixpath.normpath(posixpath.join(posixpath.dirname(p), rel))
@@ -99,7 +103,8 @@ class Resolver(LangImports):
         self._tsconfigs()
         self._lang_indexes()
         self.global_names: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for p, fx in facts.items():
+        for p in sorted(facts):
+            fx = facts[p]
             if self.files[p].lang in GLOBAL_UNIQUE_LANGS:
                 for s in fx["symbols"]:
                     if s["k"] in CODE_KINDS and (s["p"] is None or s["k"] == "method"):
@@ -111,7 +116,7 @@ class Resolver(LangImports):
     # --- indexes ---------------------------------------------------------------------------------
     def _py_index(self):
         self.py_mod: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for p in self.facts:
+        for p in sorted(self.facts):
             if self.files[p].lang != "python":
                 continue
             parts = p[:-3].split("/") if p.endswith(".py") else p[:-4].split("/")
@@ -125,19 +130,19 @@ class Resolver(LangImports):
     def _stem_index(self):
         self.stem: dict[tuple[str, ...], list[str]] = defaultdict(list)
         self.dir_suffix: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for p in self.facts:
+        for p in sorted(self.facts):
             base = p.rsplit(".", 1)[0] if "." in posixpath.basename(p) else p
             parts = base.split("/")
             for i in range(len(parts)):
                 self.stem[tuple(parts[i:])].append(p)
-        for d in self.by_dir:
+        for d in sorted(self.by_dir):
             parts = d.split("/") if d else []
             for i in range(len(parts)):
                 self.dir_suffix[tuple(parts[i:])].append(d)
 
     def _tsconfigs(self):
         self.ts_cfg: dict[str, tuple[str, dict[str, list[str]]]] = {}
-        for p in self.paths:
+        for p in sorted(self.paths):
             name = posixpath.basename(p)
             if name not in ("tsconfig.json", "jsconfig.json") and not re.match(r"tsconfig\.[\w.]+\.json$", name):
                 continue
@@ -275,7 +280,7 @@ class Resolver(LangImports):
                 d = self._closest(importer, dirs, n) if len(dirs) > 1 else dirs[0]
                 return Binding("dir", d)
         # path-like specs (C includes): match by trailing path segments anywhere in the repo
-        hits = [p for p in self.paths if p.endswith("/" + spec) or p == spec]
+        hits = [p for p in sorted(self.paths) if p.endswith("/" + spec) or p == spec]
         if hits:
             return Binding("module", self._closest(importer, hits, len(spec.split("/"))))
         return None
@@ -532,7 +537,7 @@ class Resolver(LangImports):
         table, stars = self.bindings(path)
         targets = {b.path for b in table.values() if b.kind != "dir"} | set(stars) | {path}
         hits = []
-        for fp in targets:
+        for fp in sorted(targets):
             for cls, mem in self.members.get(fp, {}).items():
                 if name in mem:
                     hits.append((fp, mem[name]))
@@ -557,14 +562,16 @@ class Resolver(LangImports):
                 agg[k] = Edge(src, dst, etype, conf, via)
 
         # pass 1: inheritance, so self.x can climb to base classes in pass 2
-        for path, fx in self.facts.items():
+        for path in sorted(self.facts):
+            fx = self.facts[path]
             for ref in fx["refs"]:
                 if ref["k"] == "inherit" and ref["f"]:
                     hit = self.resolve_ref(path, ref)
                     if hit and hit[1]:
                         self.bases[(path, ref["f"])].append((hit[0], hit[1]))
 
-        for path, fx in self.facts.items():
+        for path in sorted(self.facts):
+            fx = self.facts[path]
             entry = self.files[path]
             lang = entry.lang
             # file-level import edges
@@ -633,5 +640,5 @@ class Resolver(LangImports):
                 if etype == "calls" and q and self.syms.get(fp, {}).get(q, {}).get("k") not in CALLABLE:
                     etype = "references"
                 add(src, dst, etype, conf, via)
-        res.edges = list(agg.values())
+        res.edges = sorted(agg.values(), key=lambda e: (e.src, e.dst, e.type, e.via or "", e.conf))
         return res
