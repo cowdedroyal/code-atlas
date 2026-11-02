@@ -48,10 +48,12 @@
     if (!d) return;
     if (d.type === "atlas:cinema" && d.on === false && cinema) { exitCinema(); return; }
     if (d.type !== "atlas:theme") return;
-    var was = root.getAttribute("data-theme");
+    // Compare the theme that is actually in effect: the first message normally repeats the OS theme, and a message
+    // without a valid theme must not rebuild live views (or throw away the reader's zoom and pan).
+    var theme = currentTheme();
     if (d.theme === "light" || d.theme === "dark") root.setAttribute("data-theme", d.theme);
-    if (was !== d.theme) refreshCharts();
-    if (typeof d.lang === "string" && /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(d.lang)) {
+    if (currentTheme() !== theme) refreshCharts();
+    if (typeof d.lang === "string" && /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(d.lang)) {
       root.setAttribute("lang", d.lang);
       relabel();
     }
@@ -170,7 +172,17 @@
   }
 
   function relabel() {
-    document.querySelectorAll("ex-table, ex-chart, ex-anim").forEach(labelBadge);
+    // Every badge and every string the kit built at render time, not only the table and chart badges.
+    document.querySelectorAll("ex-table, ex-chart, ex-anim, ex-scene").forEach(labelBadge);
+    document.querySelectorAll("ex-scene").forEach(function (node) { if (node.__scene) node.__scene.relabel(); });
+    document.querySelectorAll("ex-anim").forEach(function (node) { if (node.__anim) node.__anim.draw(); });
+    document.querySelectorAll(".ex-missing").forEach(function (n) { n.textContent = t("missing"); });
+    var launch = document.querySelector(".ex-cinema-launch");
+    if (launch) {
+      launch.title = t("cinemaHint");
+      launch.setAttribute("aria-label", t("cinema") + " — " + t("cinemaHint"));
+      if (launch.lastElementChild) launch.lastElementChild.textContent = t("cinema");
+    }
   }
 
   /* ---- baked media: <ex-anim> and <ex-chart> -------------------------------
@@ -257,12 +269,20 @@
         var sx = (frame % m.columns) * m.width, sy = Math.floor(frame / m.columns) * m.height;
         ctx.drawImage(img, sx, sy, m.width, m.height, 0, 0, canvas.width, canvas.height);
       }
-      canvas.setAttribute("aria-label", caption());
-      cap.textContent = caption();
-      scrub.value = String(frame);
-      count.textContent = (frame + 1) + " / " + m.frames;
-      play.textContent = playing ? "❚❚" : "▶";
-      play.setAttribute("aria-label", (playing ? t("pause") : t("play")) + " · " + t("frame") + " " + (frame + 1));
+      // Touch a node only when its value changes: draw() also runs on resize and on a language switch.
+      var text = caption();
+      if (canvas.getAttribute("aria-label") !== text) canvas.setAttribute("aria-label", text);
+      if (cap.textContent !== text) cap.textContent = text;
+      var at = String(frame);
+      if (scrub.value !== at) scrub.value = at;
+      var counter = (frame + 1) + " / " + m.frames;
+      if (count.textContent !== counter) count.textContent = counter;
+      var icon = playing ? "❚❚" : "▶";
+      if (play.textContent !== icon) play.textContent = icon;
+      var label = (playing ? t("pause") : t("play")) + " · " + t("frame") + " " + (frame + 1);
+      if (play.getAttribute("aria-label") !== label) play.setAttribute("aria-label", label);
+      var frameLabel = t("frame");
+      if (scrub.getAttribute("aria-label") !== frameLabel) scrub.setAttribute("aria-label", frameLabel);
     }
     function setFrame(i) { frame = (i + m.frames) % m.frames; draw(); }
     function stop() { playing = false; cancelAnimationFrame(raf); raf = 0; draw(); }
@@ -271,12 +291,13 @@
       if (!last) last = now;
       acc += now - last;
       last = now;
+      var before = frame;
       while (acc >= (m.durations ? m.durations[frame] : step)) {
         acc -= m.durations ? m.durations[frame] : step;
         if (frame + 1 >= m.frames && !loop) { frame = m.frames - 1; acc = 0; stop(); return; }
         frame = (frame + 1) % m.frames;
       }
-      draw();
+      if (frame !== before) draw();     // the sprite changes at m.fps, not at the display's refresh rate
       raf = requestAnimationFrame(tick);
     }
     function start() {
@@ -289,7 +310,6 @@
       draw();
     }
     play.addEventListener("click", function () { if (playing) stop(); else start(); });
-    scrub.setAttribute("aria-label", t("frame"));
     scrub.addEventListener("input", function () { var next = Number(scrub.value); stop(); setFrame(next); });
     view.addEventListener("click", function () { if (playing) stop(); else start(); });
     img.onload = function () { ready = true; draw(); };
@@ -297,9 +317,12 @@
     node.__anim = { el: node, draw: draw, stop: stop };
 
     if (typeof ResizeObserver === "function") new ResizeObserver(function () { draw(); }).observe(view);
+    var resume = false;             // it was playing when it scrolled out of view
     if (typeof IntersectionObserver === "function") {
       new IntersectionObserver(function (entries) {
-        if (!entries[0].isIntersecting && playing) stop();
+        if (!entries[entries.length - 1].isIntersecting) {
+          if (playing) { resume = true; stop(); }
+        } else if (resume) { resume = false; start(); }
       }).observe(view);
     }
     document.addEventListener("visibilitychange", function () { if (document.hidden && playing) stop(); });
@@ -349,7 +372,7 @@
     var refs = {};
     scene.nodes.forEach(function (n) {
       var g = svgEl("g", { class: "ex-node k-" + n.kind + " t-" + n.tone + (n.dashed ? " is-dashed" : "") });
-      var shape = null, fill = null, sub = null;
+      var shape = null, fill = null, sub = null, overlay = null, clip = null;
       var label = svgEl("text", { class: "ex-label", "dominant-baseline": "middle" });
       if (n.kind === "label") {
         label.setAttribute("text-anchor", "middle");
@@ -362,10 +385,18 @@
       } else if (n.kind === "bar") {
         shape = svgEl("rect", { rx: 3, class: "ex-track" });
         fill = svgEl("rect", { rx: 3, class: "ex-fill" });
-        label.setAttribute("class", "ex-label ex-on-fill");
         g.appendChild(shape);
         g.appendChild(fill);
         g.appendChild(label);
+        // A second copy of the text, clipped to the filled part and painted in the background colour, so the caption
+        // reads over the fill (in every tone) and the dark copy underneath reads over the track when it is not filled.
+        clip = svgEl("rect");
+        var clipPath = svgEl("clipPath", { id: uid + "-fill-" + n.id });
+        clipPath.appendChild(clip);
+        defs.appendChild(clipPath);
+        overlay = svgEl("text", { class: "ex-label ex-on-fill", "dominant-baseline": "middle", "aria-hidden": "true" });
+        overlay.setAttribute("clip-path", "url(#" + uid + "-fill-" + n.id + ")");
+        g.appendChild(overlay);
       } else {
         shape = svgEl("rect", { rx: n.kind === "chip" ? 9 : 6, class: "ex-shape" });
         label.setAttribute("text-anchor", "middle");
@@ -373,13 +404,14 @@
         g.appendChild(label);
       }
       label.textContent = n.text || "";
+      if (overlay) overlay.textContent = n.text || "";
       if (n.sub) {
         sub = svgEl("text", { class: "ex-sub", "text-anchor": "middle", "dominant-baseline": "middle" });
         sub.textContent = n.sub;
         g.appendChild(sub);
       }
       gNodes.appendChild(g);
-      refs[n.id] = { node: n, g: g, shape: shape, fill: fill, label: label, sub: sub };
+      refs[n.id] = { node: n, g: g, shape: shape, fill: fill, label: label, sub: sub, overlay: overlay, clip: clip };
       layout(refs[n.id], n.size[0], n.size[1]);
     });
 
@@ -407,6 +439,13 @@
       } else if (r.node.kind === "bar") {
         r.label.setAttribute("x", at[0] + 6);
         r.label.setAttribute("y", cy + 1);
+        if (r.overlay) {
+          r.overlay.setAttribute("x", at[0] + 6);
+          r.overlay.setAttribute("y", cy + 1);
+          r.clip.setAttribute("x", at[0]);
+          r.clip.setAttribute("y", at[1]);
+          r.clip.setAttribute("height", Math.max(2, h));
+        }
       } else {
         r.label.setAttribute("x", at[0] + w / 2);
         r.label.setAttribute("y", r.sub ? cy - 5 : cy);
@@ -518,6 +557,7 @@
         r.g.style.transform = "translate(" + (at[0] - n.at[0]) + "px," + (at[1] - n.at[1]) + "px)";
         layout(r, st.size[n.id][0], st.size[n.id][1]);
         if (r.label.textContent !== st.text[n.id]) r.label.textContent = st.text[n.id];
+        if (r.overlay && r.overlay.textContent !== st.text[n.id]) r.overlay.textContent = st.text[n.id];
         if (r.sub) {
           var sub = st.sub[n.id] == null ? "" : st.sub[n.id];
           if (r.sub.textContent !== sub) r.sub.textContent = sub;
@@ -525,7 +565,9 @@
         }
         if (r.fill) {
           var value = st.value[n.id] == null ? 1 : st.value[n.id];
-          r.fill.setAttribute("width", Math.max(0, st.size[n.id][0] * value));
+          var width = Math.max(0, st.size[n.id][0] * value);
+          r.fill.setAttribute("width", width);
+          if (r.clip) r.clip.setAttribute("width", width);
         }
       });
       edges.forEach(function (e) {
@@ -555,10 +597,13 @@
       });
       fig.setAttribute("data-step", String(current + 1));
     }
+    function inCinema() { return !!(fig.closest && fig.closest(".ex-cinema")); }
     prev.addEventListener("click", function (e) { e.stopPropagation(); show(current - 1); });
     next.addEventListener("click", function (e) { e.stopPropagation(); show(current + 1); });
-    stage.addEventListener("click", function () { show(current + 1); });
+    stage.addEventListener("click", function () { if (!inCinema()) show(current + 1); });
     fig.addEventListener("keydown", function (e) {
+      if (inCinema()) return;               // the cinema owns space and the arrow keys
+      if (e.target !== fig && e.target.closest && e.target.closest("button, a, input, select")) return;
       if (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ") { e.preventDefault(); show(current + 1); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); show(current - 1); }
     });
@@ -567,6 +612,10 @@
       el: node,
       count: scene.steps.length,
       go: show,
+      relabel: function () {       // the button and the hint are the only scene strings built from t()
+        next.textContent = t("next");
+        capDetail.textContent = scene.steps[current].detail || (current === 0 ? t("sceneHint") : "");
+      },
       text: function (i) {
         var st = scene.steps[i] || {};
         return { title: st.title || "", detail: st.detail || "" };
@@ -675,12 +724,10 @@
   function refreshCharts() {
     document.querySelectorAll("ex-chart").forEach(function (node) {
       var st = node.__chart;
-      if (!st) return;
-      if (st.view) {
-        try { st.view.finalize(); } catch (e) { /* already gone */ }
-        st.view = null;
-        st.tip = null;
-      }
+      if (!st || !st.view) return;          // static charts swap their baked SVGs with CSS alone
+      try { st.view.finalize(); } catch (e) { /* already gone */ }
+      st.view = null;
+      st.tip = null;
       paintChart(node);
     });
   }
@@ -1198,11 +1245,11 @@
       cinema.ui.status.textContent = "";
       scheduleNext(token);
     };
-    u.onerror = function (ev) {
+    u.onerror = function () {
+      // Our own cancels bump cinema.token first, so reaching this point with the current token means the engine was
+      // interrupted or cancelled by something else: retry instead of leaving the screening with no timer running.
       if (!cinema || cinema.token !== token || !finishOnce()) return;
       window.clearTimeout(cinema.watch);
-      var why = ev && ev.error ? ev.error : "error";
-      if (why === "interrupted" || why === "canceled") return;
       retry();
     };
     window.clearTimeout(cinema.watch);

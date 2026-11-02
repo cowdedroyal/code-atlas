@@ -357,3 +357,32 @@ def test_vendored_kit_matches_atlas_explainer_when_available():
         pytest.skip("atlas-explainer checkout not present (git submodule update --init)")
     done = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
+
+
+def test_sync_kit_copies_text_as_lf_and_binary_verbatim(tmp_path, monkeypatch):
+    import importlib.util
+    script = Path(__file__).parent.parent / "scripts" / "sync_explainer_kit.py"
+    spec = importlib.util.spec_from_file_location("sync_explainer_kit", script)
+    kit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kit)
+    src, dest = tmp_path / "up", tmp_path / "dest"
+    kit.FILES, kit.COPIED_DIRS, kit.DEST = ["a.py", "kit/x.js", "kit/logo.png"], ["kit"], dest
+    monkeypatch.setattr(kit, "source_dir", lambda: src)
+    monkeypatch.setattr(kit.sys, "argv", ["sync"])
+    for rel, data in {"a.py": b"x = 1\r\n", "kit/x.js": b"a\r\nb\r\n",
+                      "kit/logo.png": b"\x89PNG\r\n\x1a\n\x00", "kit/v2.css": b"body{}\r\n"}.items():
+        p = src / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    (dest / "kit").mkdir(parents=True)
+    (dest / "kit" / "stale.txt").write_bytes(b"old")
+    assert kit.main() == 0
+    assert (dest / "a.py").read_bytes() == b"x = 1\n"
+    assert (dest / "kit/x.js").read_bytes() == b"a\nb\n"
+    assert (dest / "kit/logo.png").read_bytes() == b"\x89PNG\r\n\x1a\n\x00"  # CRLF kept: binary
+    assert (dest / "kit/v2.css").read_bytes() == b"body{}\n"                # upstream file FILES misses
+    assert not (dest / "kit/stale.txt").exists()                            # no longer upstream
+    monkeypatch.setattr(kit.sys, "argv", ["sync", "--check"])
+    assert kit.main() == 0
+    (dest / "kit/logo.png").write_bytes(b"\x89PNG\n\x1a\n\x00")  # --check sees a corrupted binary
+    assert kit.main() == 1

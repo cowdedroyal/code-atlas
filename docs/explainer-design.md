@@ -81,7 +81,7 @@ at: 2026-10-26T15:30:12
 
 ## 5. 组件套件（`kit`，v1）
 
-套件是一份 CSS 加一小段 JS（自定义元素，无依赖，目标 ≤ 30 KB），提供讲解"一条数据怎么走"所需的最小词汇：
+套件是一份 CSS 加一小段 JS（自定义元素，无依赖，上限 90 KB，目前约 83 KB），提供讲解"一条数据怎么走"所需的最小词汇：
 
 | 标签 | 用途 | 典型例子 |
 |---|---|---|
@@ -129,7 +129,8 @@ Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片�
 - **交互图表不破坏 CSP。** Vega 默认用 `new Function` 编译表达式，需要 `'unsafe-eval'`；这里改用
   `vega.parse(spec, null, {ast: true})` 加 `vega-interpreter`，表达式走解释器，CSP 仍是 `script-src 'unsafe-inline'`。
   运行时（BSD-3）在套件里只存一份，构建时只内联进声明了 `interactive` 的卡片。
-- **两个体积预算。** 页面仍是 200 KB；烘焙媒体单独 2 MB（雪碧图 20–120 KB、静态图 25–60 KB、交互图约 550 KB）。
+- **两个体积预算。** 页面按作者写的内容算 120 KB（内联套件与图表运行时不占作者的页面预算；套件自身另有 90 KB 上限，
+  由 atlas-explainer 的测试守着，套件升级不会把没人改过的卡挤出上限）；烘焙媒体单独 2 MB（雪碧图 20–120 KB、静态图 25–60 KB、交互图约 550 KB）。
 
 媒体沿用"真实数据"规则：`ex-anim` / `ex-chart` 与 `ex-table` 一样必须声明 `source`，`real` 还需要 `origin`。`bake`
 把每个输入文件的哈希写进 manifest，`lint` 发现源文件在烘焙后变动就报 stale；源文件已不在时不算 stale（`apply`
@@ -157,7 +158,7 @@ Vega 运行时或 WebGL 播放器塞进每张卡既不可行，也违背"卡片�
 
 **安全**：卡片经 git 在人与人之间流转，所以必须当作不可信内容。iframe 不给 `allow-same-origin`，页面带
 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:`，
-即没有网络、没有存储、碰不到外层 DOM。构建期 lint 再拒绝外部 URL、`fetch`/`XMLHttpRequest`、`eval`，以及超过大小上限（建议单卡 ≤ 200 KB）的卡片。
+即没有网络、没有存储、碰不到外层 DOM。构建期 lint 再拒绝外部 URL、`fetch`/`XMLHttpRequest`、`eval`，以及超过大小上限（建议单卡作者内容 ≤ 120 KB）的卡片。
 
 **远端流转**：因为卡片在 `.codemap/` 里并随它提交，"上传到远端"就是普通的 `git push`；换一台机器拉下来 `codeatlas serve` 即可看到。
 `build` 生成的静态站点同样带着卡片，可直接发布到 Pages。

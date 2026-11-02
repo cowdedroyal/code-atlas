@@ -24,8 +24,8 @@ Source layout (everything except the two baked outputs is optional):
 
 from __future__ import annotations
 
-import csv
 import hashlib
+import io
 import json
 import math
 import re
@@ -34,7 +34,7 @@ import shlex
 import subprocess
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -43,6 +43,7 @@ SHEET_MAX_WIDTH = 2048        # keeps the sheet inside what every browser will d
 SHEET_MAX_HEIGHT = 16383      # WebP's hard per-dimension limit
 SHEET_MAX_PIXELS = 16_000_000 # bound decoded memory as well as encoded bytes
 SHEET_BUDGET = 900_000        # bytes; quality steps down until the sheet fits
+SHEET_METHOD = 4              # libwebp's default; method 6 is ~30x slower for a few percent fewer bytes
 DEFAULT_FPS = 12
 DEFAULT_WIDTH = 560
 CHART_WIDTH = 620             # the card's column is ~46rem; a chart baked this wide reads well and still scales down
@@ -50,7 +51,8 @@ CHART_HEIGHT = 280
 MEDIA_DIR = "media"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mov", ".mkv", ".gif"}
-TEXT_SUFFIXES = {".yaml", ".yml", ".json", ".csv", ".tsv", ".ts", ".tsx", ".js", ".mjs", ".py", ".md", ".txt"}
+TEXT_SUFFIXES = {".yaml", ".yml", ".json", ".geojson", ".csv", ".tsv", ".ts", ".tsx", ".js", ".mjs", ".py", ".md",
+                 ".txt"}
 MANIFEST_SUFFIX = ".json"
 SPEC_SUFFIX = ".vl.json"
 CONFIG = "bake.yaml"
@@ -94,8 +96,39 @@ def _hash(path: Path) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
+def _lexical_rel(value) -> str | None:
+    """A card-relative path from untrusted data: posix, no drive/UNC/anchor, no `.` or `..` parts.
+
+    Checked before any Path operation, because resolving a Windows UNC path opens a network connection.
+    """
+    if not isinstance(value, str) or not value or "\\" in value or ":" in value:
+        return None
+    if PurePosixPath(value).is_absolute() or any(part in ("", ".", "..") for part in value.split("/")):
+        return None
+    return value
+
+
+def _inside(card: Path, path: Path) -> Path:
+    """`path`, resolved, or BakeError when it is outside the card."""
+    try:
+        resolved = path.resolve()
+    except OSError as e:
+        raise BakeError(f"{path.name}: cannot resolve ({e})") from e
+    if not resolved.is_relative_to(card.resolve()):
+        raise BakeError(f"{path.name}: is outside the card")
+    return resolved
+
+
 def _rel(card: Path, path: Path) -> str:
-    return path.resolve().relative_to(card.resolve()).as_posix()
+    return _inside(card, path).relative_to(card.resolve()).as_posix()
+
+
+def _guard_outputs(card: Path, name: str, inputs: list[Path], suffixes: tuple[str, ...]) -> None:
+    """Refuse to bake over a source: JSON data named `<name>.json` shares the manifest's path."""
+    outputs = {(card / MEDIA_DIR / f"{name}{suffix}").resolve() for suffix in suffixes}
+    for p in inputs:
+        if p.resolve() in outputs:
+            raise BakeError(f"`{p.name}` is a source and also the baked output for `{name}`; rename one of them")
 
 
 def _sources(card: Path, paths: list[Path]) -> dict[str, str]:
@@ -117,6 +150,8 @@ def bake_config(card: Path) -> dict:
         return {}
     try:
         data = yaml.safe_load(p.read_text("utf-8")) or {}
+    except UnicodeDecodeError as e:
+        raise BakeError(f"media/{CONFIG}: not UTF-8; re-save it as UTF-8") from e
     except yaml.YAMLError as e:
         raise BakeError(f"media/{CONFIG}: not valid YAML ({e})") from e
     if not isinstance(data, dict):
@@ -126,6 +161,11 @@ def bake_config(card: Path) -> dict:
             raise BakeError(f"media/{CONFIG}: unknown key `{key}` (expected `anim`, `chart` or `scene`)")
         if not isinstance(data[key], dict):
             raise BakeError(f"media/{CONFIG}: `{key}` must map names to settings")
+        for entry, settings in data[key].items():
+            if not isinstance(entry, str):
+                raise BakeError(f"media/{CONFIG}: `{key}` names must be strings")
+            if not isinstance(settings, dict):
+                raise BakeError(f"media/{CONFIG}: `{key}.{entry}` must map settings to values")
     return data
 
 
@@ -150,11 +190,16 @@ def _auto_frames(project: Path) -> list[Path]:
 
 
 def _frames_from_dir(card: Path, pattern: str) -> list[Path]:
-    matches = sorted(card.glob(pattern)) if pattern else []
+    if not isinstance(pattern, str):
+        raise BakeError("frames must be a glob pattern")
+    try:
+        matches = sorted(card.glob(pattern)) if pattern else []
+    except (ValueError, NotImplementedError) as e:
+        raise BakeError(f"frames pattern `{pattern}` must be relative to the card") from e
     frames = [p for p in matches if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES]
     if not frames:
         raise BakeError(f"no frames match `{pattern}` (expected png/jpg/webp stills)")
-    return frames
+    return [_inside(card, p) for p in frames]
 
 
 def _frames_from_video(path: Path, tmp: Path) -> tuple[list[Path], list[float]]:
@@ -190,6 +235,8 @@ def _run(card: Path, command: str) -> None:
     """Run the author's declared render command. Only `bake` does this, and only when asked."""
     if not command:
         return
+    if not isinstance(command, (str, list)):
+        raise BakeError("run must be a command string or a list of arguments")
     args = command if isinstance(command, str) else " ".join(shlex.quote(a) for a in command)
     r = subprocess.run(args, cwd=card, shell=True, capture_output=True, text=True)
     if r.returncode != 0:
@@ -199,11 +246,13 @@ def _run(card: Path, command: str) -> None:
 
 def _sheet(frames: list[Path], width: int):
     """Lay the frames out in a grid and encode it small enough to inline."""
-    from PIL import Image
+    from PIL import Image, UnidentifiedImageError
 
-    first = Image.open(frames[0])
-    w, h = first.size
-    first.close()
+    try:
+        with Image.open(frames[0]) as first:
+            w, h = first.size
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as e:
+        raise BakeError(f"{frames[0].name}: cannot read image ({e})") from e
     if width and width != w:
         h = max(1, round(h * width / w))
         w = width
@@ -216,19 +265,20 @@ def _sheet(frames: list[Path], width: int):
         w, h = max(1, int(w * .9)), max(1, int(h * .9))
     sheet = Image.new("RGBA", (columns * w, rows * h), (0, 0, 0, 0))
     for i, f in enumerate(frames):
-        with Image.open(f) as source:
-            im = source.convert("RGBA")
+        try:
+            with Image.open(f) as source:
+                im = source.convert("RGBA")
+        except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as e:
+            raise BakeError(f"{f.name}: cannot read image ({e})") from e
         if im.size != (w, h):
             im = im.resize((w, h), Image.LANCZOS)
         sheet.paste(im, ((i % columns) * w, (i // columns) * h))
         im.close()
     data = b""
     for quality in (80, 65, 50, 40):
-        import io
-
         buf = io.BytesIO()
         try:
-            sheet.save(buf, format="WEBP", quality=quality, method=6)
+            sheet.save(buf, format="WEBP", quality=quality, method=SHEET_METHOD)
         except (ValueError, OSError) as e:
             raise BakeError(f"cannot encode animation sheet ({sheet.width}x{sheet.height}): {e}") from e
         data = buf.getvalue()
@@ -262,18 +312,36 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
     cfg = cfg or {}
     if cfg.get("run"):
         _run(card, cfg["run"])
-    sources: list[Path] = []
-    fps = float(cfg.get("fps") or DEFAULT_FPS)
+    try:
+        fps = float(cfg.get("fps") or DEFAULT_FPS)
+    except (TypeError, ValueError):
+        raise BakeError(f"{name}: fps must be a number") from None
     if not math.isfinite(fps) or fps <= 0:
         raise BakeError(f"{name}: fps must be positive and finite")
+    try:
+        width = int(cfg.get("width") or DEFAULT_WIDTH)
+    except (TypeError, ValueError):
+        raise BakeError(f"{name}: width must be a positive integer") from None
+    if width <= 0:
+        raise BakeError(f"{name}: width must be a positive integer")
+    captions_cfg = cfg.get("captions") or []
+    if not isinstance(captions_cfg, list):
+        raise BakeError(f"{name}: captions must be a list")
+    sources: list[Path] = []
     durations = None
     video = cfg.get("video")
     tmp = tempfile.TemporaryDirectory(prefix="atlas-frames-")   # decoded video frames never live in the card
     try:
         if video:
-            paths = sorted(p for p in card.glob(video) if p.suffix.lower() in VIDEO_SUFFIXES)
+            if not isinstance(video, str):
+                raise BakeError(f"{name}: video must be a glob pattern")
+            try:
+                paths = sorted(p for p in card.glob(video) if p.suffix.lower() in VIDEO_SUFFIXES)
+            except (ValueError, NotImplementedError) as e:
+                raise BakeError(f"{name}: video pattern `{video}` must be relative to the card") from e
             if not paths:
                 raise BakeError(f"no video matches `{video}`")
+            paths = [_inside(card, p) for p in paths]
             frames, durations = _frames_from_video(paths[0], Path(tmp.name))
             frames, durations = _sample_video(frames, durations, fps)
             fps = 1000 / durations[0]
@@ -282,7 +350,7 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
             frames = _frames_from_dir(card, cfg["frames"])
         else:
             project = card / MEDIA_DIR / "src" / name
-            frames = _auto_frames(project)
+            frames = [_inside(card, p) for p in _auto_frames(project)]
             if not frames:
                 raise BakeError(
                     f"{name}: no frames. Render the scene to stills (`frames/` under media/src/{name}/), or set "
@@ -290,14 +358,18 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
         sheet_sources = list(frames) if not video else []
         original_count = len(frames)
         frames, fps = _subsample(frames, fps)
-        width, height, columns, data = _sheet(frames, int(cfg.get("width") or DEFAULT_WIDTH))
+        config_path = card / MEDIA_DIR / CONFIG
+        inputs = sources + sheet_sources + ([config_path] if config_path.exists() else [])
+        _guard_outputs(card, name, inputs, (".json", ".webp"))
+        width, height, columns, data = _sheet(frames, width)
     finally:
         tmp.cleanup()
     sheet = card / MEDIA_DIR / f"{name}.webp"
+    sources_hash = _sources(card, inputs)
     sheet.write_bytes(data)
-    captions = [str(c) for c in (cfg.get("captions") or [])][: len(frames)]
+    captions = [str(c) for c in captions_cfg][: len(frames)]
     if not video and original_count > len(frames):
-        authored = [str(c) for c in (cfg.get("captions") or [])]
+        authored = [str(c) for c in captions_cfg]
         captions = [authored[int(i * original_count / len(frames))] if int(i * original_count / len(frames)) < len(authored)
                     else "" for i in range(len(frames))]
     manifest = {
@@ -312,7 +384,7 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
         "ms": 1000 / fps,
         "captions": captions,
         "baked_at": _now(),
-        "sources": _sources(card, sources + sheet_sources + ([card / MEDIA_DIR / CONFIG] if (card / MEDIA_DIR / CONFIG).exists() else [])),
+        "sources": sources_hash,
     }
     if durations is not None:
         manifest["durations"] = durations
@@ -320,46 +392,55 @@ def bake_anim(card: Path, name: str, cfg: dict | None = None) -> dict:
     return {"kind": "anim", "frames": len(frames), "bytes": len(data), "sheet": f"media/{name}.webp"}
 
 
-def _inline_data(spec: dict, base: Path, used: list[Path]) -> dict:
+def _inline_data(spec: dict, base: Path, used: list[Path], card: Path) -> dict:
     """Replace `data.url` with the file's values, so the card never needs to fetch anything."""
     if isinstance(spec, dict):
         out = {}
         for k, v in spec.items():
-            if k == "data" and isinstance(v, dict) and isinstance(v.get("url"), str) and "values" not in v:
-                out[k] = _load_data(v["url"], base)
-                used.append((base / v["url"]).resolve())
+            if k == "data" and isinstance(v, dict) and "url" in v and "values" not in v:
+                if not isinstance(v["url"], str):
+                    raise BakeError("data.url must name a file next to the spec; a URL built at bake time "
+                                    "cannot be inlined")
+                out[k] = _load_data(v, base, card)
+                used.append(_inside(card, base / v["url"]))
             else:
-                out[k] = _inline_data(v, base, used)
+                out[k] = _inline_data(v, base, used, card)
         return out
     if isinstance(spec, list):
-        return [_inline_data(v, base, used) for v in spec]
+        return [_inline_data(v, base, used, card) for v in spec]
     return spec
 
 
-def _number(s: str):
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        return s
-
-
-def _load_data(url: str, base: Path) -> dict:
+def _load_data(data: dict, base: Path, card: Path) -> dict:
+    """Keep every key of the data object except `url`; the file text becomes `values`."""
+    url = data["url"]
     if "://" in url or url.startswith("data:"):
         raise BakeError(f"data url `{url}` is remote; download the data next to the spec so it can be inlined")
-    path = (base / url).resolve()
+    if _lexical_rel(url) is None:
+        raise BakeError(f"data url `{url}` must be a relative path inside the card")
+    path = _inside(card, base / url)
     if not path.is_file():
         raise BakeError(f"data file `{url}` is missing next to the spec")
-    if path.suffix.lower() == ".csv":
-        with path.open(newline="", encoding="utf-8-sig") as f:
-            rows = [{k: _number(v) for k, v in row.items()} for row in csv.DictReader(f)]
-        return {"values": rows}
-    if path.suffix.lower() in (".json", ".geojson"):
-        return {"values": json.loads(path.read_text("utf-8"))}
-    raise BakeError(f"`{url}`: only csv and json data can be inlined")
+    kind = {".csv": "csv", ".json": "json", ".geojson": "json"}.get(path.suffix.lower())
+    if kind is None:
+        raise BakeError(f"`{url}`: only csv and json data can be inlined")
+    try:
+        text = path.read_text("utf-8-sig")
+    except UnicodeDecodeError as e:
+        raise BakeError(f"`{url}` is not UTF-8; re-save it as UTF-8") from e
+    if kind == "json":
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as e:
+            raise BakeError(f"`{url}`: not valid JSON ({e})") from e
+    # Hand Vega the file text and let `format` (or a type matching the suffix) parse it, exactly as it would a
+    # fetch of that url. Parsing cells here would flatten `1.10`/`007` and turn `Nan`/`Infinity` into null.
+    out = {k: v for k, v in data.items() if k != "url"}
+    out["values"] = text
+    fmt = out.get("format") if isinstance(out.get("format"), dict) else {}
+    fmt.setdefault("type", kind)   # the url used to supply this; without it Vega would assume json
+    out["format"] = fmt
+    return out
 
 
 def _tooltip_fields(spec: dict) -> list[str]:
@@ -399,18 +480,26 @@ def bake_chart(card: Path, name: str, cfg: dict | None = None) -> dict:
         import vl_convert
     except ImportError as e:
         raise BakeError("charts need the media extra: `uv sync --extra media`") from e
-    spec_path = card / MEDIA_DIR / str(cfg.get("spec") or f"{name}{SPEC_SUFFIX}")
+    spec_rel = str(cfg.get("spec") or f"{name}{SPEC_SUFFIX}")
+    if _lexical_rel(spec_rel) is None:
+        raise BakeError(f"{name}: spec must be a path inside the card")
+    spec_path = _inside(card, card / MEDIA_DIR / spec_rel)
     if not spec_path.is_file():
         raise BakeError(f"media/{spec_path.name} is missing")
     try:
-        spec = json.loads(spec_path.read_text("utf-8"))
+        spec = json.loads(spec_path.read_text("utf-8-sig"))
+    except UnicodeDecodeError as e:
+        raise BakeError(f"media/{spec_path.name}: not UTF-8; re-save it as UTF-8") from e
     except json.JSONDecodeError as e:
         raise BakeError(f"media/{spec_path.name}: not valid JSON ({e})") from e
     if not isinstance(spec, dict):
         raise BakeError(f"media/{spec_path.name}: a Vega-Lite spec is a JSON object")
     used: list[Path] = []
     author_config = spec.get("config") if isinstance(spec.get("config"), dict) else {}
-    body = _inline_data({k: v for k, v in spec.items() if k != "config"}, spec_path.parent, used)
+    body = _inline_data({k: v for k, v in spec.items() if k != "config"}, spec_path.parent, used, card)
+    config_path = card / MEDIA_DIR / CONFIG
+    inputs = used + [spec_path] + ([config_path] if config_path.exists() else [])
+    _guard_outputs(card, name, inputs, (".json",))
     svg, vega = {}, {}
     for theme, colors in THEME_CONFIG.items():
         themed = dict(body, config=_merge(_merge(BASE_CONFIG, colors), author_config))
@@ -421,7 +510,8 @@ def bake_chart(card: Path, name: str, cfg: dict | None = None) -> dict:
         if themed["width"] == "container":
             themed["width"] = CHART_WIDTH
         try:
-            svg[theme] = vl_convert.vegalite_to_svg(themed)
+            # Inline data is the only data a card may carry; never let a spec fetch at bake time.
+            svg[theme] = vl_convert.vegalite_to_svg(themed, allowed_base_urls=[])
             if cfg.get("interactive"):
                 vega[theme] = vl_convert.vegalite_to_vega(themed)
         except Exception as e:  # vl-convert reports compile errors as ValueError
@@ -433,7 +523,7 @@ def bake_chart(card: Path, name: str, cfg: dict | None = None) -> dict:
         "vega": vega or None,
         "tooltip": _tooltip_fields(spec),
         "baked_at": _now(),
-        "sources": _sources(card, used + [spec_path] + ([card / MEDIA_DIR / CONFIG] if (card / MEDIA_DIR / CONFIG).exists() else [])),
+        "sources": _sources(card, inputs),
     }
     (card / MEDIA_DIR / f"{name}.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", "utf-8")
     return {"kind": "chart", "svg_bytes": sum(len(s) for s in svg.values()),
@@ -470,38 +560,43 @@ def _text(value, limit: int) -> str | None:
 def normalize_scene(raw: dict) -> dict:
     """Fill in what an author may leave out, so validation and the kit see one shape."""
     scene = {"size": _pair(raw.get("size")) or list(SCENE_DEFAULT_SIZE), "nodes": [], "edges": [], "steps": []}
-    for node in raw.get("nodes") or []:
+    nodes = raw.get("nodes") if isinstance(raw.get("nodes"), list) else []
+    edges = raw.get("edges") if isinstance(raw.get("edges"), list) else []
+    steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+    for node in nodes:
         if not isinstance(node, dict):
             scene["nodes"].append(node)
             continue
         kind = node.get("kind", "box")
+        size = SCENE_NODE_SIZE.get(kind, SCENE_NODE_SIZE["box"]) if isinstance(kind, str) else SCENE_NODE_SIZE["box"]
         scene["nodes"].append({
             "id": node.get("id"),
             "kind": kind,
             "at": _pair(node.get("at")) or [0, 0],
-            "size": _pair(node.get("size")) or list(SCENE_NODE_SIZE.get(kind, SCENE_NODE_SIZE["box"])),
+            "size": _pair(node.get("size")) or list(size),
             "text": node.get("text", ""),
             "sub": node.get("sub"),
             "tone": node.get("tone", "default"),
             "value": node.get("value", 1 if kind == "bar" else None),
             "dashed": bool(node.get("dashed")),
         })
-    for edge in raw.get("edges") or []:
+    for edge in edges:
         if not isinstance(edge, dict):
             scene["edges"].append(edge)
             continue
         scene["edges"].append({"from": edge.get("from"), "to": edge.get("to"), "label": edge.get("label"),
                                "dashed": bool(edge.get("dashed"))})
-    for step in raw.get("steps") or []:
+    for step in steps:
         if not isinstance(step, dict):
             scene["steps"].append(step)
             continue
         scene["steps"].append({
             "title": step.get("title", ""),
             "detail": step.get("detail"),
-            "show": list(step.get("show") or []),
-            "hide": list(step.get("hide") or []),
-            "focus": list(step["focus"]) if "focus" in step else None,
+            # Keep malformed values as-is so validate_scene can name them; `list()` would crash on a number.
+            "show": step.get("show") or [],
+            "hide": step.get("hide") or [],
+            "focus": step["focus"] if "focus" in step else None,
             "move": step.get("move") or {},
             "size": step.get("size") or {},
             "text": step.get("text") or {},
@@ -537,7 +632,8 @@ def validate_scene(scene) -> list[str]:
             errors.append(f"{where}: duplicate id `{name}`")
         else:
             ids.add(name)
-        if node.get("kind") not in SCENE_KINDS:
+        kind = node.get("kind")
+        if not isinstance(kind, str) or kind not in SCENE_KINDS:
             errors.append(f"{where}: kind must be one of {', '.join(sorted(SCENE_KINDS))}")
         at, box = _pair(node.get("at")), _pair(node.get("size"))
         if not at or not (0 <= at[0] <= size[0] and 0 <= at[1] <= size[1]):
@@ -548,7 +644,8 @@ def validate_scene(scene) -> list[str]:
             errors.append(f"{where}: text must be a string of at most 160 characters")
         if node.get("sub") is not None and _text(node.get("sub"), 120) is None:
             errors.append(f"{where}: sub must be a string of at most 120 characters")
-        if node.get("tone") not in SCENE_TONES:
+        tone = node.get("tone")
+        if not isinstance(tone, str) or tone not in SCENE_TONES:
             errors.append(f"{where}: tone must be one of {', '.join(sorted(SCENE_TONES))}")
         if not isinstance(node.get("dashed", False), bool):
             errors.append(f"{where}: dashed must be true or false")
@@ -582,14 +679,16 @@ def validate_scene(scene) -> list[str]:
         title = step.get("title")
         if not isinstance(title, str) or not title.strip() or len(title) > 120:
             errors.append(f"{where}: every step needs a title (≤ 120 characters) — it is what the click explains")
-        if step.get("detail") is not None and _text(step.get("detail"), 400) is None:
+        detail = step.get("detail")
+        if detail is not None and _text(detail, 400) is None:
             errors.append(f"{where}: detail must be a string of at most 400 characters")
         for key in ("show", "hide"):
             value = step.get(key)
-            if not isinstance(value, list) or any(v not in ids for v in value):
+            if not isinstance(value, list) or any(not isinstance(v, str) or v not in ids for v in value):
                 errors.append(f"{where}: {key} must name node ids")
-        if step.get("focus") is not None and (not isinstance(step["focus"], list)
-                                              or any(v not in ids for v in step["focus"])):
+        focus = step.get("focus")
+        if focus is not None and (not isinstance(focus, list)
+                                  or any(not isinstance(v, str) or v not in ids for v in focus)):
             errors.append(f"{where}: focus must name node ids (an empty list clears the spotlight)")
         for key in ("move", "text", "sub", "value", "tone", "size"):
             value = step.get(key)
@@ -612,10 +711,10 @@ def validate_scene(scene) -> list[str]:
                 elif key == "value" and (not isinstance(change, (int, float)) or isinstance(change, bool)
                                          or not 0 <= float(change) <= 1):
                     errors.append(f"{where}: value[{node_id}] must be between 0 and 1")
-                elif key == "tone" and change not in SCENE_TONES:
+                elif key == "tone" and (not isinstance(change, str) or change not in SCENE_TONES):
                     errors.append(f"{where}: tone[{node_id}] must be one of {', '.join(sorted(SCENE_TONES))}")
         changes = any(step.get(k) for k in ("show", "hide", "focus", "move", "text", "sub", "value", "tone", "size"))
-        if not changes and not (step.get("detail") or "").strip():
+        if not changes and not (isinstance(detail, str) and detail.strip()):
             errors.append(f"{where}: a step must change something or explain something, or the click is pointless")
     return errors
 
@@ -632,18 +731,21 @@ def scene_names(card: Path, cfg: dict) -> list[str]:
 def bake_scene(card: Path, name: str, cfg: dict | None = None) -> dict:
     """Read an authored scene, check it, and write the manifest the kit draws from."""
     cfg = cfg or {}
-    src = card / MEDIA_DIR / str(cfg.get("source") or f"scenes/{name}.yaml")
+    source = str(cfg.get("source") or f"scenes/{name}.yaml")
+    if _lexical_rel(source) is None:
+        raise BakeError(f"{name}: source must be a path inside the card")
+    src = _inside(card, card / MEDIA_DIR / source)
     if not src.is_file():
         for suffix in (".yaml", ".yml", ".json"):
             candidate = card / MEDIA_DIR / "scenes" / f"{name}{suffix}"
             if candidate.is_file():
-                src = candidate
+                src = _inside(card, candidate)
                 break
         else:
             raise BakeError(f"{name}: no scene source. Write media/scenes/{name}.yaml "
                             f"(a `size`, `nodes`, `edges` and at least two `steps`)")
     try:
-        raw = json.loads(src.read_text("utf-8")) if src.suffix.lower() == ".json" else yaml.safe_load(src.read_text("utf-8"))
+        raw = json.loads(src.read_text("utf-8-sig")) if src.suffix.lower() == ".json" else yaml.safe_load(src.read_text("utf-8"))
     except (json.JSONDecodeError, yaml.YAMLError, UnicodeDecodeError) as e:
         raise BakeError(f"media/{src.name}: not valid YAML/JSON ({e})") from e
     if not isinstance(raw, dict):
@@ -652,12 +754,15 @@ def bake_scene(card: Path, name: str, cfg: dict | None = None) -> dict:
     errors = validate_scene(scene)
     if errors:
         raise BakeError(f"media/{src.name}: " + "\n".join(errors[:8]))
+    config_path = card / MEDIA_DIR / CONFIG
+    inputs = [src] + ([config_path] if config_path.exists() else [])
+    _guard_outputs(card, name, inputs, (".json",))
     manifest = {
         "kind": "scene",
         "id": name,
         "scene": scene,
         "baked_at": _now(),
-        "sources": _sources(card, [src] + ([card / MEDIA_DIR / CONFIG] if (card / MEDIA_DIR / CONFIG).exists() else [])),
+        "sources": _sources(card, inputs),
     }
     (card / MEDIA_DIR / f"{name}.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", "utf-8")
     return {"kind": "scene", "steps": len(scene["steps"]), "nodes": len(scene["nodes"]),
@@ -712,11 +817,17 @@ def stale(card: Path, manifest: dict) -> list[str]:
     with the author. What matters is a file that is present and different — that is a picture of yesterday's code.
     """
     changed = []
-    for rel, digest in (manifest.get("sources") or {}).items():
-        p = card / rel
-        if not p.resolve().is_relative_to(card.resolve()):
+    sources = manifest.get("sources")
+    if not isinstance(sources, dict):
+        return ["invalid sources"]
+    for rel, digest in sources.items():
+        if _lexical_rel(rel) is None:
             changed.append(f"invalid source path: {rel}")
             continue
-        if p.is_file() and _hash(p) != digest:
-            changed.append(rel)
+        try:
+            p = _inside(card, card / rel)
+            if p.is_file() and _hash(p) != digest:
+                changed.append(rel)
+        except (BakeError, OSError):
+            changed.append(f"invalid source path: {rel}")
     return changed

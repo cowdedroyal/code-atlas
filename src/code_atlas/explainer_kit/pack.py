@@ -16,7 +16,8 @@ Cards may also show baked media — an animation or a chart — through a name `
 
 The files live in `media/` next to `card.yaml` and are produced by `atlas-explainer bake` (see media.py); `pack`
 inlines them into the page, so the card is still one file with no network. Because media is far larger than the
-prose it illustrates, its size is budgeted separately from the page.
+prose it illustrates, its size is budgeted separately from the page — and so is the kit, which the author does not
+control: a kit update must never push cards that were fine yesterday over the page budget.
 """
 
 from __future__ import annotations
@@ -37,8 +38,9 @@ from . import KIT_VERSION
 from .media import stale, validate_scene
 
 PKG = Path(__file__).parent
-MAX_BYTES = 200_000            # the page itself: prose, tags, the kit
+MAX_BYTES = 120_000            # the page the author writes: prose, tags, inline images; the kit is budgeted separately
 MAX_MEDIA_BYTES = 2_000_000    # baked animation/chart/narration media, inlined at pack time
+MAX_KIT_BYTES = 90_000         # v1.css + v1.js, inlined into every page; currently ~83 KB (see test_pack)
 MEDIA = "media"
 MEDIA_SCHEME = "atlas-media:"
 MEDIA_TAGS = {"ex-anim": "anim", "ex-chart": "chart", "ex-scene": "scene"}
@@ -417,6 +419,12 @@ def _stale(card: Path, m: dict) -> list[str]:
     return stale(card, m)
 
 
+def kit_bytes() -> int:
+    """Size of the kit as inlined: it costs every page the same, so no author is charged for it."""
+    return sum(len((PKG / "kit" / f"v{KIT_VERSION}.{ext}").read_text("utf-8").encode("utf-8"))
+               for ext in ("css", "js"))
+
+
 def lint_card(card: Path) -> list[str]:
     problems: list[str] = []
     try:
@@ -445,20 +453,23 @@ def lint_card(card: Path) -> list[str]:
         if re.search(pat, html):
             problems.append(f"index.html: contains a {what} reference")
     problems += lint_media(card, scan)
-    packed = len(pack_html(html, manifest if isinstance(manifest, dict) else {}, media={}).encode("utf-8"))
-    if packed > MAX_BYTES:
-        problems.append(f"packed card is {packed:,} bytes; the limit is {MAX_BYTES:,} (fewer rows, smaller images)")
+    authored = len(pack_html(html, manifest if isinstance(manifest, dict) else {}, media={}, kit=False).encode("utf-8"))
+    if authored > MAX_BYTES:
+        problems.append(f"card content is {authored:,} bytes once packed, without the kit; the limit is {MAX_BYTES:,} "
+                        "(fewer rows, smaller images)")
     return problems
 
 
-def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None) -> str:
+def pack_html(html: str, manifest: dict, media: dict[str, dict] | None = None, kit: bool = True) -> str:
     """Inline the kit, the media registry and the CSP.
 
     `media` is the output of `inline_media`; pass `{}` to measure the page on its own. `None` means the caller does not
     handle media at all, so a card that uses some is an error rather than a page that silently loses its pictures.
+    `kit=False` leaves the kit out, which is what the page budget measures: the kit and the Vega runtime are charged
+    to their own budgets, not to the author.
     """
-    css = (PKG / "kit" / f"v{KIT_VERSION}.css").read_text("utf-8")
-    js = (PKG / "kit" / f"v{KIT_VERSION}.js").read_text("utf-8")
+    css = (PKG / "kit" / f"v{KIT_VERSION}.css").read_text("utf-8") if kit else ""
+    js = (PKG / "kit" / f"v{KIT_VERSION}.js").read_text("utf-8") if kit else ""
     if media is None:
         if MEDIA_SCHEME in html:
             raise ValueError("this card uses baked media; pass `media=inline_media(...)` to pack_html")
